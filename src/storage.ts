@@ -3,6 +3,7 @@ import { places as demoPlaces } from './data';
 import { placeImages } from './assets';
 export const storageKey = 'quiet-address-v1';
 export interface Session {
+  pinned?: string[];
   ghosts: Ghost[];
   assignments: Assignments;
   places: Place[];
@@ -81,5 +82,14 @@ export function parseSession(raw: string): Session {
   for (const [id, p] of Object.entries(s.assignments))
     if (!ids.has(id) || !places.some((place) => place.id === p))
       throw new Error('Неизвестное назначение');
+  if (
+    s.pinned !== undefined &&
+    (!Array.isArray(s.pinned) ||
+      new Set(s.pinned).size !== s.pinned.length ||
+      s.pinned.some(
+        (id) => typeof id !== 'string' || !ids.has(id) || !Object.hasOwn(s.assignments, id),
+      ))
+  )
+    throw new Error('Повреждённые закрепления');
   return { ...s, places };
 }

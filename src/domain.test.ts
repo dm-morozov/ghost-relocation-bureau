@@ -140,3 +140,41 @@ describe('хранение', () => {
       expect(() => parseSession(raw)).toThrow();
   });
 });
+
+describe('закреплённые назначения', () => {
+  it('сохраняет ручной адрес, резервирует вместимость и не меняет входные данные', () => {
+    const fixed = { a: 'p' };
+    const preferred = { ...place, id: 'better', temperature: ghost.temperature };
+    const result = relocation.allocate(
+      [ghost, { ...ghost, id: 'b' }],
+      [place, preferred],
+      today,
+      fixed,
+    );
+    expect(result).toEqual({ a: 'p', b: 'better' });
+    expect(fixed).toEqual({ a: 'p' });
+    expect(place.capacity).toBe(1);
+  });
+  it('сохраняет закреплённый конфликт и не подселяет в переполненное место', () => {
+    const expired = { ...ghost, deadline: '2026-10-15' };
+    expect(
+      relocation.allocate([expired, { ...ghost, id: 'b' }, { ...ghost, id: 'c' }], [place], today, {
+        a: 'p',
+        b: 'p',
+      }),
+    ).toEqual({ a: 'p', b: 'p' });
+  });
+  it('после снятия закрепления снова выбирает лучший адрес', () => {
+    const better = { ...place, id: 'better', temperature: ghost.temperature };
+    expect(relocation.allocate([ghost], [{ ...place, temperature: 40 }, better], today)).toEqual({
+      a: 'better',
+    });
+  });
+  it('сохраняет валидные закрепления и отвергает неизвестные и дубли', () => {
+    const session = { ghosts: [ghost], places: [place], assignments: { a: 'p' }, pinned: ['a'] };
+    expect(parseSession(JSON.stringify(session))).toEqual(session);
+    expect(() => parseSession(JSON.stringify({ ...session, pinned: ['b'] }))).toThrow();
+    expect(() => parseSession(JSON.stringify({ ...session, pinned: ['a', 'a'] }))).toThrow();
+    expect(() => parseSession(JSON.stringify({ ...session, assignments: {} }))).toThrow();
+  });
+});

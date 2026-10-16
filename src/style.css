@@ -1340,3 +1340,54 @@ legend {
     flex: 1;
   }
 }
+
+.request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+  align-items: center;
+}
+.delete-action {
+  color: #a53632;
+}
+.pin-control {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.pin-control small {
+  color: #52645a;
+  line-height: 1.5;
+}
+.pin-button {
+  justify-self: start;
+  border: 1px solid #879a8c;
+  background: #fff;
+  color: #294c3d;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.pin-button.is-pinned {
+  background: #dcebdd;
+  border-color: #3e7050;
+  color: #23472e;
+}
+.pin-button:hover {
+  background: #cce1ce;
+}
+.edit-request {
+  border: 1px solid #a5b6a5;
+  border-radius: 12px;
+  padding: 16px;
+}
+.edit-request h3 {
+  margin-top: 0;
+}
+.edit-request p {
+  font-size: 14px;
+  line-height: 1.5;
+}

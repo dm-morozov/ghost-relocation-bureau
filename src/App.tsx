@@ -13,6 +13,7 @@ import { parseSession, storageKey, type Session } from './storage';
 import Worklog from './Worklog';
 import PlaceForm from './PlaceForm';
 import ComfortPanel from './ComfortPanel';
+import GhostForm from './GhostForm';
 import {
   assetUrl,
   ghostPortraits,
@@ -46,6 +47,9 @@ const dateLabel = (s: string) =>
   new Date(`${s}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 export default function App() {
   const [boot] = useState(initial);
+  const [pinned, setPinned] = useState<string[]>(boot.pinned ?? []);
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [places, setPlaces] = useState(boot.places);
   const [showPlaceForm, setShowPlaceForm] = useState(false);
   const [placeInitial, setPlaceInitial] = useState<Partial<Place>>();
@@ -80,13 +84,13 @@ export default function App() {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments, places }));
+      localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments, places, pinned }));
     } catch {
       setError(
         'Не удалось сохранить изменения в браузере. Текущая работа доступна до закрытия страницы; скачайте отчёт.',
       );
     }
-  }, [ghosts, assignments, places]);
+  }, [ghosts, assignments, places, pinned]);
   const ghost = ghosts.find((g) => g.id === selected);
   const assigned = ghosts.filter((g) => assignments[g.id]).length;
   const violations = (g: Ghost) => {
@@ -119,6 +123,8 @@ export default function App() {
     );
   }
   function select(id: string) {
+    setEditing(false);
+    setDeleting(false);
     setSelected(id);
     setTarget(assignments[id] ?? '');
     setPending(null);
@@ -128,6 +134,7 @@ export default function App() {
     let a: Assignments = {};
     if (value === 'full') a = { g1: 'castle', g2: 'castle' };
     if (value === 'conflict') a = { g1: 'theatre' };
+    setPinned([]);
     setGhosts(next);
     setAssignments(a);
     select(next[0]?.id ?? '');
@@ -138,15 +145,21 @@ export default function App() {
     setMessage('Сценарий заявок загружен. Назначения заменены; добавленные места сохранены.');
   }
   function allocate() {
-    const result = relocation.allocate(ghosts, places, today);
+    const fixed = Object.fromEntries(
+      pinned.filter((id) => assignments[id]).map((id) => [id, assignments[id]]),
+    );
+    const result = relocation.allocate(ghosts, places, today, fixed);
     setAssignments(result);
     setPending(null);
     setTarget(selected ? (result[selected] ?? '') : '');
     setMessage(
-      'Подбор завершён. Обязательные условия и вместимость учтены; предыдущие ручные назначения заменены.',
+      `Подбор завершён. Сохранено закреплённых назначений: ${Object.keys(fixed).length}. Остальные заявки распределены по свободным местам. Конфликты закреплённых решений требуют проверки оператора.`,
     );
   }
   function apply(id: string, placeId: string) {
+    setPinned((ids) =>
+      placeId ? [...ids.filter((value) => value !== id), id] : ids.filter((value) => value !== id),
+    );
     setAssignments((a) => {
       const next = { ...a };
       if (placeId) next[id] = placeId;
@@ -154,7 +167,11 @@ export default function App() {
       return next;
     });
     setPending(null);
-    setMessage(placeId ? 'Ручное назначение сохранено.' : 'Назначение снято.');
+    setMessage(
+      placeId
+        ? 'Ручное назначение сохранено и закреплено. Автоподбор его не изменит.'
+        : 'Назначение снято.',
+    );
   }
   function choose() {
     if (!ghost) return;
@@ -190,9 +207,24 @@ export default function App() {
     setShowForm(false);
     setMessage('Заявка добавлена. Запустите подбор или выберите место вручную.');
   }
+  function deleteGhost() {
+    if (!ghost) return;
+    const remaining = ghosts.filter((g) => g.id !== ghost.id);
+    setGhosts(remaining);
+    setAssignments((current) => {
+      const next = { ...current };
+      delete next[ghost.id];
+      return next;
+    });
+    setPinned((ids) => ids.filter((id) => id !== ghost.id));
+    select(remaining[0]?.id ?? '');
+    setTarget(remaining[0] ? (assignments[remaining[0].id] ?? '') : '');
+    setMessage('Заявка «' + ghost.name + '» удалена. Занятое ею место освобождено.');
+  }
   function download() {
     const rows = ghosts.map((g) => ({
       имя: g.name,
+      закреплено: pinned.includes(g.id),
       место: places.find((p) => p.id === assignments[g.id])?.name ?? null,
       предупреждения: violations(g),
     }));
@@ -470,7 +502,12 @@ export default function App() {
                           height="64"
                         />
                         <span className="request-body">
-                          <strong>{g.name}</strong>
+                          <strong>
+                            {g.name}
+                            {pinned.includes(g.id) && (
+                              <span aria-label="Закреплено вручную"> 🔒</span>
+                            )}
+                          </strong>
                           <span>
                             {g.conditions.map((c) => conditionLabels[c]).join(' · ') ||
                               'Без особых условий'}
@@ -528,6 +565,64 @@ export default function App() {
                           ? 'Назначено'
                           : 'Без места'}
                     </span>
+                    <div className="request-actions">
+                      <button
+                        className="secondary"
+                        aria-expanded={editing}
+                        onClick={() => {
+                          setEditing(!editing);
+                          setDeleting(false);
+                          setPending(null);
+                        }}
+                      >
+                        Редактировать заявку
+                      </button>
+                      <button
+                        className="text-button delete-action"
+                        aria-expanded={deleting}
+                        onClick={() => {
+                          setDeleting(!deleting);
+                          setEditing(false);
+                          setPending(null);
+                        }}
+                      >
+                        Удалить заявку
+                      </button>
+                    </div>
+                    {editing && (
+                      <GhostForm
+                        key={ghost.id}
+                        ghost={ghost}
+                        onCancel={() => setEditing(false)}
+                        onSave={(updated) => {
+                          setGhosts((items) =>
+                            items.map((item) => (item.id === updated.id ? updated : item)),
+                          );
+                          setEditing(false);
+                          setPending(null);
+                          setMessage(
+                            'Заявка обновлена. Назначение и закрепление сохранены; проверьте предупреждения об условиях.',
+                          );
+                        }}
+                      />
+                    )}
+                    {deleting && (
+                      <section className="notice danger" aria-label="Подтверждение удаления">
+                        <strong>Удалить заявку «{ghost.name}»?</strong>
+                        <p>
+                          Назначение и закрепление будут сняты. Восстановить заявку можно только
+                          создав её заново.
+                        </p>
+                        <div className="form-actions">
+                          <button className="danger-button" onClick={deleteGhost}>
+                            Да, удалить заявку
+                          </button>
+                          <button className="secondary" onClick={() => setDeleting(false)}>
+                            Отмена
+                          </button>
+                        </div>
+                      </section>
+                    )}
                     <p className="muted">В поисках места, которое можно назвать своим.</p>
                     <dl className="facts">
                       <div>
@@ -556,6 +651,36 @@ export default function App() {
                     </div>
                     <div className="decision">
                       <p className="eyebrow">Текущее решение</p>
+                      {assignments[ghost.id] && (
+                        <div className="pin-control">
+                          <button
+                            className={
+                              'pin-button ' + (pinned.includes(ghost.id) ? 'is-pinned' : '')
+                            }
+                            aria-pressed={pinned.includes(ghost.id)}
+                            onClick={() => {
+                              const locked = pinned.includes(ghost.id);
+                              setPinned((ids) =>
+                                locked ? ids.filter((id) => id !== ghost.id) : [...ids, ghost.id],
+                              );
+                              setMessage(
+                                locked
+                                  ? 'Закрепление снято. Следующий подбор может изменить этот адрес.'
+                                  : 'Назначение закреплено. Автоподбор сохранит этот адрес.',
+                              );
+                            }}
+                          >
+                            {pinned.includes(ghost.id)
+                              ? '🔒 Закреплено вручную'
+                              : '🔓 Закрепить назначение'}
+                          </button>
+                          <small>
+                            {pinned.includes(ghost.id)
+                              ? 'Автоподбор сохранит адрес. Нажмите, чтобы снять замочек.'
+                              : 'Автоподбор может изменить адрес.'}
+                          </small>
+                        </div>
+                      )}
                       <h3>
                         {places.find((p) => p.id === assignments[ghost.id])?.name ??
                           'Место пока не назначено'}
@@ -670,7 +795,7 @@ export default function App() {
                       <summary>Изменить дедлайн</summary>
                       <form
                         className="new-form"
-                        key={ghost.id}
+                        key={`${ghost.id}-${ghost.deadline}`}
                         onSubmit={(e) => {
                           e.preventDefault();
                           const deadline = String(new FormData(e.currentTarget).get('newDeadline'));
@@ -883,7 +1008,10 @@ export default function App() {
               .sort((a, b) => a.deadline.localeCompare(b.deadline) || b.anxiety - a.anxiety)
               .map((g) => (
                 <div className="report-row" key={g.id}>
-                  <strong>{g.name}</strong>
+                  <strong>
+                    {g.name}
+                    {pinned.includes(g.id) && <span aria-label="Закреплено вручную"> 🔒</span>}
+                  </strong>
                   <p>
                     {violations(g).join('; ') ||
                       (places.every((p) => relocation.conflicts(g, p, assignments, today).length)
@@ -913,7 +1041,7 @@ export default function App() {
             ))}
             <p>
               {overloaded.length
-                ? `Перегруженных мест: ${overloaded.length}. Снимите лишние назначения или повторите автоматический подбор.`
+                ? `Перегруженных мест: ${overloaded.length}. Снимите лишние назначения или их закрепления и повторите автоматический подбор.`
                 : 'Переполненных мест нет.'}
             </p>
           </section>
@@ -934,7 +1062,9 @@ export default function App() {
             Алгоритм сначала расселяет максимально возможное число привидений, затем выбирает
             наибольшую суммарную оценку комфорта. При равенстве результат детерминирован порядком
             данных. Дедлайн и тревожность сортируют проблемные заявки в отчёте, но не дают приоритет
-            при распределении. Повторный подбор заменяет ручные назначения.
+            при распределении. Ручной выбор автоматически закрепляется замочком. Подбор сохраняет
+            закреплённые назначения, включая конфликты, и учитывает их вместимость. Снимите замочек,
+            чтобы разрешить переназначение.
           </p>
         </details>
         <footer>

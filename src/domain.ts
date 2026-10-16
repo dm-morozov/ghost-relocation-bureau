@@ -95,7 +95,29 @@ export class RelocationService {
   }
   // Successive shortest augmenting paths: maximum count first, then maximum total comfort.
   // Reverse edges can move an earlier ghost, preventing greedy allocation dead ends.
-  allocate(ghosts: readonly Ghost[], places: readonly Place[], today: string): Assignments {
+  allocate(
+    ghosts: readonly Ghost[],
+    places: readonly Place[],
+    today: string,
+    fixed: Assignments = {},
+  ): Assignments {
+    // Reserve operator decisions, even when they contain explicitly accepted conflicts.
+    const reserved = Object.fromEntries(
+      Object.entries(fixed).filter(
+        ([id, placeId]) => ghosts.some((g) => g.id === id) && places.some((p) => p.id === placeId),
+      ),
+    );
+    if (Object.keys(reserved).length) {
+      const remaining = ghosts.filter((g) => !Object.hasOwn(reserved, g.id));
+      const available = places.map((p) => ({
+        ...p,
+        capacity: Math.max(
+          0,
+          p.capacity - Object.values(reserved).filter((id) => id === p.id).length,
+        ),
+      }));
+      return { ...reserved, ...this.allocate(remaining, available, today) };
+    }
     type Edge = { to: number; reverse: number; capacity: number; cost: number };
     const source = 0,
       firstGhost = 1,

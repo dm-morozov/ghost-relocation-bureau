@@ -88,3 +88,88 @@ describe('оператор создаёт новые записи', () => {
     expect(screen.queryByText(/Учебный проект для MOX/)).toBeNull();
   });
 });
+
+describe('оператор управляет своей заявкой', () => {
+  it('закрепляет ручной выбор, сохраняет его после подбора и перезагрузки, снимает замочек', async () => {
+    const user = userEvent.setup();
+    const view = render(<App />);
+    await user.selectOptions(screen.getByLabelText('Изменить место вручную'), 'castle');
+    await user.click(screen.getByRole('button', { name: 'Применить выбор' }));
+    expect(
+      screen.getByRole('button', { name: '🔒 Закреплено вручную' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    let saved = parseSession(localStorage.getItem(storageKey)!);
+    expect(saved.assignments.g1).toBe('castle');
+    expect(saved.pinned).toEqual(['g1']);
+    view.unmount();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: '🔒 Закреплено вручную' }));
+    expect(
+      screen.getByRole('button', { name: '🔓 Закрепить назначение' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+    saved = parseSession(localStorage.getItem(storageKey)!);
+    expect(saved.pinned).toEqual([]);
+    expect(saved.assignments.g1).toBe('castle');
+  });
+  it('редактирует параметры, сохраняет закрепление и показывает новый конфликт', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.selectOptions(screen.getByLabelText('Изменить место вручную'), 'castle');
+    await user.click(screen.getByRole('button', { name: 'Применить выбор' }));
+    await user.click(screen.getByRole('button', { name: 'Редактировать заявку' }));
+    const form = screen.getByRole('form', { name: 'Редактирование заявки' });
+    await user.clear(within(form).getByLabelText('Имя'));
+    await user.type(within(form).getByLabelText('Имя'), 'Анна Обновлённая');
+    await user.clear(within(form).getByLabelText('Тревожность (1–10)'));
+    await user.type(within(form).getByLabelText('Тревожность (1–10)'), '10');
+    await user.click(within(form).getByLabelText('Любит сырость'));
+    await user.click(within(form).getByRole('button', { name: 'Сохранить изменения' }));
+    expect(screen.getByRole('heading', { name: 'Анна Обновлённая' })).toBeTruthy();
+    expect(within(screen.getByLabelText('Карточка заявки')).getByText('Конфликт')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    const saved = parseSession(localStorage.getItem(storageKey)!);
+    expect(saved.ghosts[0].anxiety).toBe(10);
+    expect(saved.assignments.g1).toBe('castle');
+    expect(saved.pinned).toEqual(['g1']);
+  });
+  it('отменяет правки и удаление, затем удаляет последнюю заявку с назначением и замочком', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const session = parseSession(localStorage.getItem(storageKey)!);
+    cleanup();
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...session,
+        ghosts: [session.ghosts[0]],
+        assignments: { g1: 'castle' },
+        pinned: ['g1'],
+      }),
+    );
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Редактировать заявку' }));
+    await user.clear(screen.getByLabelText('Имя'));
+    await user.type(screen.getByLabelText('Имя'), 'Не сохранять');
+    await user.click(
+      within(screen.getByRole('form', { name: 'Редактирование заявки' })).getByRole('button', {
+        name: 'Отмена',
+      }),
+    );
+    expect(screen.queryByRole('heading', { name: 'Не сохранять' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Удалить заявку' }));
+    await user.click(
+      within(screen.getByRole('region', { name: 'Подтверждение удаления' })).getByRole('button', {
+        name: 'Отмена',
+      }),
+    );
+    expect(parseSession(localStorage.getItem(storageKey)!).ghosts).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Удалить заявку' }));
+    await user.click(screen.getByRole('button', { name: 'Да, удалить заявку' }));
+    const saved = parseSession(localStorage.getItem(storageKey)!);
+    expect(saved.ghosts).toEqual([]);
+    expect(saved.assignments).toEqual({});
+    expect(saved.pinned).toEqual([]);
+    expect(screen.getByRole('heading', { name: 'Выберите заявку' })).toBeTruthy();
+  });
+});
