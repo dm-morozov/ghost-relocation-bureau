@@ -7,22 +7,27 @@ import {
   type Condition,
   type Assignments,
 } from './domain';
-import { demoGhosts, places } from './data';
+import { demoGhosts, places as demoPlaces } from './data';
 import { parseSession, storageKey, type Session } from './storage';
 import Worklog from './Worklog';
+import PlaceForm from './PlaceForm';
+import { assetUrl, ghostPortraits, portraitUrl, placeImageUrl } from './assets';
 
 type Tab = 'Заявки' | 'Места' | 'Отчёт' | 'AI Worklog';
 function initial(): Session & { error: string } {
   try {
     const raw = localStorage.getItem(storageKey);
     return {
-      ...(raw ? parseSession(raw) : { ghosts: demoGhosts(todayISO()), assignments: {} }),
+      ...(raw
+        ? parseSession(raw)
+        : { ghosts: demoGhosts(todayISO()), assignments: {}, places: structuredClone(demoPlaces) }),
       error: '',
     };
   } catch {
     return {
       ghosts: demoGhosts(todayISO()),
       assignments: {},
+      places: structuredClone(demoPlaces),
       error:
         'Сохранённая сессия недоступна или повреждена. Загружены демоданные; проверьте их перед подбором.',
     };
@@ -32,6 +37,8 @@ const dateLabel = (s: string) =>
   new Date(`${s}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 export default function App() {
   const [boot] = useState(initial);
+  const [places, setPlaces] = useState(boot.places);
+  const [showPlaceForm, setShowPlaceForm] = useState(false);
   const [ghosts, setGhosts] = useState(boot.ghosts),
     [assignments, setAssignments] = useState<Assignments>(boot.assignments);
   const [error, setError] = useState(boot.error),
@@ -54,13 +61,13 @@ export default function App() {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments }));
+      localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments, places }));
     } catch {
       setError(
         'Не удалось сохранить изменения в браузере. Текущая работа доступна до закрытия страницы; скачайте отчёт.',
       );
     }
-  }, [ghosts, assignments]);
+  }, [ghosts, assignments, places]);
   const ghost = ghosts.find((g) => g.id === selected);
   const assigned = ghosts.filter((g) => assignments[g.id]).length;
   const violations = (g: Ghost) => {
@@ -87,7 +94,7 @@ export default function App() {
     setQuery('');
     setFilter('all');
     setPending(null);
-    setMessage('Сценарий загружен. Он заменил текущие демонстрационные данные.');
+    setMessage('Сценарий заявок загружен. Назначения заменены; добавленные места сохранены.');
   }
   function allocate() {
     const result = relocation.allocate(ghosts, places, today);
@@ -134,6 +141,7 @@ export default function App() {
       temperature: Number(data.get('temperature')),
       deadline: String(data.get('deadline')),
       conditions: data.getAll('conditions') as Condition[],
+      portrait: Number(data.get('portrait')),
     };
     setGhosts((gs) => [...gs, g]);
     select(g.id);
@@ -260,7 +268,7 @@ export default function App() {
               {tab === 'Заявки'
                 ? 'Подберите тихий адрес, проверьте условия и помогите с переездом.'
                 : tab === 'Места'
-                  ? 'Пять мест обитания. Вместимость и условия видны до назначения.'
+                  ? 'Добавляйте адреса и проверяйте их условия перед назначением.'
                   : tab === 'Отчёт'
                     ? 'Назначение с нарушениями ещё требует решения оператора.'
                     : 'Честный журнал участия автора и AI.'}
@@ -365,6 +373,22 @@ export default function App() {
                         </label>
                       ))}
                     </fieldset>
+                    <fieldset>
+                      <legend>Портрет привидения</legend>
+                      <div className="image-options ghost-options">
+                        {ghostPortraits.map((image, index) => (
+                          <label key={image}>
+                            <input
+                              type="radio"
+                              name="portrait"
+                              value={index}
+                              defaultChecked={index === ghosts.length % 10}
+                            />
+                            <img src={assetUrl(image)} alt={`Привидение ${index + 1}`} />
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
                     <button className="primary" type="submit">
                       Добавить заявку
                     </button>
@@ -388,7 +412,7 @@ export default function App() {
                   </select>
                 </div>
                 <div className="request-list">
-                  {visible.map((g, i) => {
+                  {visible.map((g) => {
                     const p = places.find((p) => p.id === assignments[g.id]),
                       bad = violations(g);
                     return (
@@ -397,9 +421,13 @@ export default function App() {
                         className={`request ${selected === g.id ? 'selected' : ''}`}
                         onClick={() => select(g.id)}
                       >
-                        <span className={`avatar tone-${i % 4}`} aria-hidden="true">
-                          {g.name[0]}
-                        </span>
+                        <img
+                          className="avatar ghost-image"
+                          src={portraitUrl(g)}
+                          alt=""
+                          width="64"
+                          height="64"
+                        />
                         <span className="request-body">
                           <strong>{g.name}</strong>
                           <span>
@@ -440,6 +468,13 @@ export default function App() {
                         № {ghost.id.startsWith('g') ? ghost.id.slice(1).padStart(3, '0') : 'новое'}
                       </span>
                     </div>
+                    <img
+                      className="detail-portrait"
+                      src={portraitUrl(ghost)}
+                      alt={`Портрет: ${ghost.name}`}
+                      width="160"
+                      height="160"
+                    />
                     <h2>{ghost.name}</h2>
                     <p className="muted">В поисках места, которое можно назвать своим.</p>
                     <dl className="facts">
@@ -622,7 +657,7 @@ export default function App() {
             <section className="scenario">
               <div>
                 <h3>Проверить крайние случаи</h3>
-                <p>Загрузка сценария заменяет текущую сессию.</p>
+                <p>Сценарий заменяет заявки и назначения. Добавленные места сохраняются.</p>
               </div>
               <div className="scenario-buttons">
                 <button onClick={() => scenario('demo')}>Исходные данные</button>
@@ -634,48 +669,79 @@ export default function App() {
           </>
         )}
         {tab === 'Места' && (
-          <div className="places-grid">
-            {places.map((p, i) => (
-              <article className="place" key={p.id}>
-                <div className="place-art" aria-hidden="true">
-                  <span>{['I', 'II', 'III', 'IV', 'V'][i]}</span>
-                  <strong>{['ЗАМОК', 'МАЯК', 'БИБЛИОТЕКА', 'ТЕАТР', 'ТИПОГРАФИЯ'][i]}</strong>
-                </div>
-                <div className="place-content">
-                  <div className="section-heading">
-                    <h2>{p.name}</h2>
-                    <span className={`badge ${occupied(p.id) > p.capacity ? 'bad' : ''}`}>
-                      {occupied(p.id)}/{p.capacity}
-                    </span>
+          <section>
+            <div className="section-heading places-heading">
+              <h2>Места обитания · {places.length}</h2>
+              <button className="primary" onClick={() => setShowPlaceForm(!showPlaceForm)}>
+                {showPlaceForm ? 'Закрыть форму' : '+ Новое место'}
+              </button>
+            </div>
+            {showPlaceForm && (
+              <PlaceForm
+                onCancel={() => setShowPlaceForm(false)}
+                onAdd={(p) => {
+                  if (places.length >= 50) {
+                    setError('Можно добавить до 50 мест.');
+                    return;
+                  }
+                  setPlaces((ps) => [...ps, p]);
+                  setShowPlaceForm(false);
+                  setMessage(
+                    'Место добавлено. Перейдите в заявки и повторите подбор, чтобы использовать новый адрес.',
+                  );
+                }}
+              />
+            )}
+            <div className="places-grid">
+              {places.map((p) => (
+                <article className="place" key={p.id}>
+                  <div className="place-art">
+                    <img
+                      src={placeImageUrl(p)}
+                      alt={p.name}
+                      width="512"
+                      height="512"
+                      loading="lazy"
+                    />
                   </div>
-                  <p>{p.description}</p>
-                  <dl className="facts">
-                    <div>
-                      <dt>Температура</dt>
-                      <dd>{p.temperature} °C</dd>
+                  <div className="place-content">
+                    <div className="section-heading">
+                      <h2>{p.name}</h2>
+                      <span className={`badge ${occupied(p.id) > p.capacity ? 'bad' : ''}`}>
+                        {occupied(p.id)}/{p.capacity}
+                      </span>
                     </div>
-                    <div>
-                      <dt>Свет / шум / влажность</dt>
-                      <dd>
-                        {p.light} / {p.noise} / {p.humidity}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Люди / зеркала / чердак</dt>
-                      <dd>
-                        {[p.people, p.mirrors, p.attic].map((v) => (v ? 'да' : 'нет')).join(' / ')}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Макс. тревожность</dt>
-                      <dd>{p.maxAnxiety}/10</dd>
-                    </div>
-                  </dl>
-                  <small>Свет, шум и влажность: шкала 0–100.</small>
-                </div>
-              </article>
-            ))}
-          </div>
+                    <p>{p.description}</p>
+                    <dl className="facts">
+                      <div>
+                        <dt>Температура</dt>
+                        <dd>{p.temperature} °C</dd>
+                      </div>
+                      <div>
+                        <dt>Свет / шум / влажность</dt>
+                        <dd>
+                          {p.light} / {p.noise} / {p.humidity}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Люди / зеркала / чердак</dt>
+                        <dd>
+                          {[p.people, p.mirrors, p.attic]
+                            .map((v) => (v ? 'да' : 'нет'))
+                            .join(' / ')}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Макс. тревожность</dt>
+                        <dd>{p.maxAnxiety}/10</dd>
+                      </div>
+                    </dl>
+                    <small>Свет, шум и влажность: шкала 0–100.</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
         )}
         {tab === 'Отчёт' && (
           <section className="document">
@@ -758,7 +824,7 @@ export default function App() {
           </p>
         </details>
         <footer>
-          Тихий адрес <span>Учебный проект для MOX · без внешнего AI API</span>
+          Тихий адрес <span>Бюро переселения привидений</span>
         </footer>
       </main>
     </div>

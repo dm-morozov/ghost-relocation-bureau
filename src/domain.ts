@@ -8,6 +8,7 @@ export const conditionLabels: Record<Condition, string> = {
   quiet: 'Нужна тишина',
 };
 export interface Ghost {
+  portrait?: number;
   id: string;
   name: string;
   anxiety: number;
@@ -16,6 +17,7 @@ export interface Ghost {
   conditions: Condition[];
 }
 export interface Place {
+  image?: string;
   id: string;
   name: string;
   description: string;

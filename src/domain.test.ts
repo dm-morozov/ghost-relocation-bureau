@@ -102,7 +102,31 @@ describe('распределение', () => {
 describe('хранение', () => {
   it('восстанавливает валидную сессию', () => {
     const value = { ghosts: [ghost], assignments: { a: 'castle' } };
-    expect(parseSession(JSON.stringify(value))).toEqual(value);
+    expect(parseSession(JSON.stringify(value))).toEqual({ ...value, places });
+  });
+  it('сохраняет новое место и использует его для невозможной ранее заявки', () => {
+    const custom = {
+      ...places[0],
+      id: 'new-place',
+      name: 'Сырой чердак',
+      humidity: 80,
+      image: 'castle',
+    };
+    const g = demoGhosts(today)[4];
+    const assignments = relocation.allocate([g], [custom], today);
+    expect(assignments[g.id]).toBe(custom.id);
+    const session = { ghosts: [g], places: [...places, custom], assignments };
+    expect(parseSession(JSON.stringify(session))).toEqual(session);
+  });
+  it('отклоняет некорректную вместимость и неизвестное изображение места', () => {
+    for (const custom of [
+      { ...places[0], capacity: 0 },
+      { ...places[0], image: 'https://external.invalid/image.png' },
+    ]) {
+      expect(() =>
+        parseSession(JSON.stringify({ ghosts: [], places: [custom], assignments: {} })),
+      ).toThrow();
+    }
   });
   it('отклоняет повреждение, неизвестные условия и назначения', () => {
     for (const raw of [
