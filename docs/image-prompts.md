@@ -1,5 +1,17 @@
 # Изображения для «Тихого адреса»
 
+## Дополнительный каталог локаций
+
+Пять резервных изображений созданы встроенным ImageGen отдельными запросами. Общая формулировка: “One standalone photorealistic handcrafted architectural miniature diorama matching a refined ghost relocation bureau. Entire building fully visible, three-quarter view, compact base, actual transparent alpha background. Natural cream stone, muted sage greenery, soft studio light, highly detailed materials. Square high-resolution image. No people, text, labels or watermark.”
+
+- `greenhouse.png` — Оранжерея туманов: an antique glass greenhouse conservatory with misty glass panes, lush ferns and a small stone foundation.
+- `clocktower.png` — Часовая башня: a slender old stone clock tower with a large clock face, slate roof and a visible attic dormer.
+- `manor.png` — Лесная усадьба: a secluded timber manor house with a visible attic, mossy roof, small porch and two pine trees.
+- `observatory.png` — Забытая обсерватория: a historic stone observatory with a weathered copper dome and a visible telescope through the open dome.
+- `watermill.png` — Водяная мельница: an old timber and stone watermill with a large wooden water wheel, attic dormer and a tiny stream on its compact base.
+
+Фактический размер всех пяти файлов — 1254×1254 RGBA. Они хранятся в `public/images/`, но не входят в исходные места переселения. Форма предлагает только ещё не использованные изображения.
+
 Инструмент: встроенный ImageGen в Codex. Все изображения синтетические; это иллюстрации персонажей и архитектурные миниатюры, не фотографии реальных объектов. Каждый файл генерируется отдельно. Исходные PNG с альфа-каналом сохраняются в `public/images/`.
 
 Общий запрос для персонажей: “One isolated friendly fictional ghost character portrait, full floating body, expressive face, charming polished storybook 3D illustration. High-quality square website asset. Whole subject centered, soft studio light, muted cream sage natural palette. Actual transparent alpha background. No text, no watermark.”
