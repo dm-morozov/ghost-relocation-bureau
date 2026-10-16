@@ -1278,3 +1278,65 @@ legend {
   display: inline-block;
   margin-bottom: 12px;
 }
+/* Form actions must not inherit the pale demo-scenario button background. */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 0 4px;
+}
+.form-actions .primary {
+  background: #284e3e;
+  color: #fff;
+  border: 1px solid #284e3e;
+  min-height: 46px;
+  padding: 12px 20px;
+  font-size: 14px;
+}
+.form-actions .primary:hover {
+  background: #173e35;
+  border-color: #173e35;
+}
+.location-options {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.location-options label {
+  display: flex !important;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-color: #d5ddce;
+}
+.location-options img {
+  height: 130px;
+}
+.location-options label > span {
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: #263f37;
+}
+.place-form input[readonly] {
+  background: #e9eee3;
+  color: #294636;
+  font-weight: 600;
+}
+@media (max-width: 400px) {
+  .location-options {
+    grid-template-columns: 1fr 1fr;
+  }
+  .location-options img {
+    height: 95px;
+  }
+  .location-options label {
+    padding: 8px;
+  }
+  .form-actions {
+    align-items: stretch;
+  }
+  .form-actions .primary {
+    flex: 1;
+  }
+}

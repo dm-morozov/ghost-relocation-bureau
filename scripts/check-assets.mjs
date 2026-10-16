@@ -7,6 +7,11 @@ const names = [
   'library',
   'theatre',
   'cellar',
+  'greenhouse',
+  'clocktower',
+  'manor',
+  'observatory',
+  'watermill',
 ];
 for (const name of names) {
   const bytes = readFileSync(new URL(`../public/images/${name}.png`, import.meta.url));

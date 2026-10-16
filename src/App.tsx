@@ -13,7 +13,14 @@ import { parseSession, storageKey, type Session } from './storage';
 import Worklog from './Worklog';
 import PlaceForm from './PlaceForm';
 import ComfortPanel from './ComfortPanel';
-import { assetUrl, ghostPortraits, portraitUrl, placeImageUrl } from './assets';
+import {
+  assetUrl,
+  ghostPortraits,
+  portraitUrl,
+  placeImageUrl,
+  availableLocations,
+  placeImageKey,
+} from './assets';
 
 type Tab = 'Заявки' | 'Места' | 'Отчёт' | 'AI Worklog';
 function initial(): Session & { error: string } {
@@ -91,7 +98,6 @@ export default function App() {
   const overloaded = places.filter((p) => occupied(p.id) > p.capacity);
   function createIdealPlace(g: Ghost) {
     setPlaceInitial({
-      name: `Убежище для ${g.name}`.slice(0, 60),
       description: `Место с условиями для ${g.name}`,
       capacity: 1,
       temperature: g.temperature,
@@ -102,7 +108,7 @@ export default function App() {
       light: g.conditions.includes('dark') ? 15 : 40,
       noise: g.conditions.includes('quiet') ? 15 : 30,
       maxAnxiety: 10,
-      image: g.conditions.includes('damp') && !g.conditions.includes('attic') ? 'cellar' : 'castle',
+      image: availableLocations(places)[0]?.image,
     });
     setPlaceFormVersion((v) => v + 1);
     setShowPlaceForm(true);
@@ -750,8 +756,17 @@ export default function App() {
               <PlaceForm
                 key={placeFormVersion}
                 initialData={placeInitial}
+                existingPlaces={places}
                 onCancel={() => setShowPlaceForm(false)}
                 onAdd={(p) => {
+                  if (
+                    !availableLocations(places).some(
+                      (location) => location.image === placeImageKey(p),
+                    )
+                  ) {
+                    setError('Эта локация уже добавлена. Выберите другую.');
+                    return;
+                  }
                   if (places.length >= 50) {
                     setError('Можно добавить до 50 мест.');
                     return;

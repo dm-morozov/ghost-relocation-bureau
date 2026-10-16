@@ -14,9 +14,7 @@ describe('оператор создаёт новые записи', () => {
     await user.click(
       screen.getByRole('button', { name: '🪄 Создать идеальное место для Эдгар Безадресный' }),
     );
-    expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe(
-      'Убежище для Эдгар Безадресный',
-    );
+    expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe('Оранжерея туманов');
     expect((screen.getByLabelText('Температура, °C') as HTMLInputElement).value).toBe('5');
     expect((screen.getByLabelText('Влажность (0–100)') as HTMLInputElement).value).toBe('85');
     expect((screen.getByLabelText('Шум (0–100)') as HTMLInputElement).value).toBe('15');
@@ -33,7 +31,7 @@ describe('оператор создаёт новые записи', () => {
     ).toBeNull();
     await user.click(screen.getByRole('button', { name: /02.*Места/ }));
     const residents = screen.getByRole('region', {
-      name: 'Текущие жильцы: Убежище для Эдгар Безадресный',
+      name: 'Текущие жильцы: Оранжерея туманов',
     });
     await user.click(within(residents).getByRole('button', { name: 'Эдгар Безадресный' }));
     expect(screen.getByRole('heading', { name: 'Эдгар Безадресный' })).toBe(document.activeElement);
@@ -49,31 +47,31 @@ describe('оператор создаёт новые записи', () => {
     expect((screen.getByLabelText('Влажность (0–100)') as HTMLInputElement).value).toBe('45');
     await user.click(screen.getByRole('button', { name: 'Отмена' }));
     await user.click(screen.getByRole('button', { name: '+ Новое место' }));
-    expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe('Оранжерея туманов');
   });
   it('добавляет место и расселяет в нём ранее невозможную заявку', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /02.*Места/ }));
     await user.click(screen.getByRole('button', { name: '+ Новое место' }));
-    await user.type(screen.getByLabelText('Название'), 'Сырой чердак');
+    expect((screen.getByLabelText('Название') as HTMLInputElement).readOnly).toBe(true);
     await user.type(screen.getByLabelText('Описание'), 'Тихое место без людей и зеркал');
     await user.clear(screen.getByLabelText('Влажность (0–100)'));
     await user.type(screen.getByLabelText('Влажность (0–100)'), '80');
     await user.click(screen.getByLabelText('Есть чердак'));
     await user.click(screen.getByRole('button', { name: 'Добавить место' }));
-    expect(screen.getByRole('heading', { name: 'Сырой чердак' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /01.*Заявки/ }));
     await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
     await user.click(screen.getByRole('button', { name: /Эдгар Безадресный/ }));
-    expect(screen.getByRole('heading', { name: 'Сырой чердак' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
     const saved = parseSession(localStorage.getItem(storageKey)!);
-    const place = saved.places.find((p) => p.name === 'Сырой чердак')!;
+    const place = saved.places.find((p) => p.name === 'Оранжерея туманов')!;
     expect(saved.assignments.g5).toBe(place.id);
     cleanup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /02.*Места/ }));
-    expect(screen.getByRole('heading', { name: 'Сырой чердак' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
   });
   it('показывает десять портретов и сохраняет выбор новой заявки', async () => {
     const user = userEvent.setup();
