@@ -18,7 +18,11 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren, { failed: b
         </p>
         <button
           onClick={() => {
-            localStorage.removeItem('quiet-address-v1');
+            try {
+              localStorage.removeItem('quiet-address-v1');
+            } catch {
+              // Reload remains available when browser storage is disabled.
+            }
             location.reload();
           }}
         >

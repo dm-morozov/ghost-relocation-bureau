@@ -111,6 +111,7 @@ describe('хранение', () => {
       JSON.stringify({ ghosts: [{ ...ghost, conditions: ['unknown'] }], assignments: {} }),
       JSON.stringify({ ghosts: [ghost], assignments: { a: 'unknown' } }),
       JSON.stringify({ ghosts: [ghost, ghost], assignments: {} }),
+      JSON.stringify({ ghosts: [{ ...ghost, deadline: '2026-02-31' }], assignments: {} }),
     ])
       expect(() => parseSession(raw)).toThrow();
   });

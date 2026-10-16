@@ -35,6 +35,7 @@ export function parseSession(raw: string): Session {
       typeof g.deadline !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline) ||
       !Number.isFinite(Date.parse(g.deadline)) ||
+      new Date(`${g.deadline}T00:00:00Z`).toISOString().slice(0, 10) !== g.deadline ||
       !Array.isArray(g.conditions) ||
       g.conditions.some((c) => !Object.hasOwn(conditionLabels, c))
     )
