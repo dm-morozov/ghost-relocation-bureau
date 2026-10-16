@@ -1027,3 +1027,254 @@ legend {
     grid-template-columns: 1fr;
   }
 }
+/* Status uses text and border as well as colour. */
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #c4a149;
+  background: #fff1c2;
+  color: #714800;
+  padding: 6px 9px;
+  line-height: 1.35;
+}
+.badge.good {
+  background: #d6f1df;
+  color: #145c35;
+  border-color: #76ae8a;
+}
+.badge.warning {
+  background: #fff1c2;
+  color: #714800;
+  border-color: #c4a149;
+}
+.badge.bad {
+  background: #ffe0df;
+  color: #922d2d;
+  border-color: #d99591;
+}
+.request {
+  border-left: 4px solid transparent;
+}
+.request-assigned {
+  border-left-color: #3d9461;
+}
+.request-unassigned {
+  border-left-color: #c28a18;
+}
+.request-conflict {
+  border-left-color: #c34c48;
+}
+.request.selected {
+  border-left-width: 4px;
+  box-shadow: inset 0 0 0 1px #5e7b55;
+}
+.request-assigned.selected {
+  border-left-color: #267748;
+  background: #e8f3e8;
+}
+.request-unassigned.selected {
+  border-left-color: #ab7509;
+  background: #fff5d9;
+}
+.request-conflict.selected {
+  border-left-color: #ac3434;
+  background: #fff0ed;
+}
+.ideal-action {
+  margin-top: 18px;
+}
+.ideal-button {
+  width: 100%;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.6;
+}
+.deadline-note {
+  color: #93362b;
+  font-weight: 600;
+}
+.comfort-panel {
+  --comfort-color: #287448;
+  --comfort-soft: #e1f0df;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #d3ddce;
+  border-radius: 8px;
+  background: #fffef9;
+}
+.comfort-warning {
+  --comfort-color: #946100;
+  --comfort-soft: #fff0ca;
+}
+.comfort-bad {
+  --comfort-color: #b63e38;
+  --comfort-soft: #ffe4df;
+}
+.comfort-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.comfort-heading strong {
+  color: var(--comfort-color);
+  font-size: 27px;
+}
+.comfort-heading small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #596651;
+}
+.comfort-track {
+  height: 10px;
+  border-radius: 6px;
+  background: #e5e8df;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.comfort-track > span {
+  display: block;
+  height: 100%;
+  background: var(--comfort-color);
+  border-radius: inherit;
+}
+.comfort-panel .comfort-level {
+  margin: 10px 0 14px;
+  color: var(--comfort-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+.parameter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.parameter-chip {
+  padding: 9px 10px;
+  background: var(--comfort-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.parameter-chip small {
+  font-size: 11px;
+}
+.condition-chips {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  display: grid;
+  gap: 7px;
+}
+.condition-chip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  border: 1px solid;
+}
+.condition-chip.good {
+  background: #e4f3e8;
+  border-color: #b4d1bb;
+  color: #185c35;
+}
+.condition-chip.bad {
+  background: #ffebe8;
+  border-color: #e0b4ac;
+  color: #922d2d;
+}
+.condition-chip strong {
+  margin-left: auto;
+}
+.comfort-panel .comfort-note {
+  font-size: 11px;
+  color: #66715f;
+  margin: 12px 0 0;
+}
+.residents {
+  margin: 16px 0;
+  padding: 14px 0;
+  border-top: 1px solid #e1e7d9;
+  border-bottom: 1px solid #e1e7d9;
+}
+.residents h3 {
+  font-size: 12px;
+  color: #58674f;
+}
+.residents ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.resident {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid #cbd9c4;
+  border-radius: 24px;
+  background: #edf4e7;
+  font-size: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+.resident img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #dce8d0;
+  flex-shrink: 0;
+}
+.resident span {
+  overflow-wrap: anywhere;
+}
+.residents .residents-empty {
+  margin: 0;
+  padding: 9px 12px;
+  color: #646b60;
+  background: #eff0eb;
+  border-radius: 6px;
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .request .badge {
+    font-size: 10px;
+    white-space: normal;
+    text-align: center;
+    max-width: 78px;
+    flex-shrink: 0;
+  }
+  .request {
+    padding-left: 9px;
+  }
+  .request.selected {
+    padding-left: 9px;
+  }
+  .comfort-panel {
+    padding: 12px;
+  }
+  .parameter-chip {
+    width: 100%;
+    font-size: 11px;
+  }
+  .condition-chip {
+    font-size: 11px;
+  }
+  .resident {
+    font-size: 11px;
+  }
+}
+.detail > .badge {
+  display: inline-block;
+  margin-bottom: 12px;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   conditionLabels,
   relocation,
@@ -6,11 +6,13 @@ import {
   type Ghost,
   type Condition,
   type Assignments,
+  type Place,
 } from './domain';
 import { demoGhosts, places as demoPlaces } from './data';
 import { parseSession, storageKey, type Session } from './storage';
 import Worklog from './Worklog';
 import PlaceForm from './PlaceForm';
+import ComfortPanel from './ComfortPanel';
 import { assetUrl, ghostPortraits, portraitUrl, placeImageUrl } from './assets';
 
 type Tab = 'Заявки' | 'Места' | 'Отчёт' | 'AI Worklog';
@@ -39,6 +41,10 @@ export default function App() {
   const [boot] = useState(initial);
   const [places, setPlaces] = useState(boot.places);
   const [showPlaceForm, setShowPlaceForm] = useState(false);
+  const [placeInitial, setPlaceInitial] = useState<Partial<Place>>();
+  const [placeFormVersion, setPlaceFormVersion] = useState(0);
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  const focusRequest = useRef(false);
   const [ghosts, setGhosts] = useState(boot.ghosts),
     [assignments, setAssignments] = useState<Assignments>(boot.assignments);
   const [error, setError] = useState(boot.error),
@@ -55,6 +61,12 @@ export default function App() {
       conflicts: string[];
     } | null>(null);
   const [today, setToday] = useState(todayISO());
+  useEffect(() => {
+    if (tab === 'Заявки' && focusRequest.current) {
+      focusRequest.current = false;
+      detailHeading.current?.focus();
+    }
+  }, [tab, selected]);
   useEffect(() => {
     const id = window.setInterval(() => setToday(todayISO()), 30_000);
     return () => clearInterval(id);
@@ -77,6 +89,29 @@ export default function App() {
   const problemGhosts = ghosts.filter((g) => !assignments[g.id] || violations(g).length);
   const occupied = (id: string) => Object.values(assignments).filter((p) => p === id).length;
   const overloaded = places.filter((p) => occupied(p.id) > p.capacity);
+  function createIdealPlace(g: Ghost) {
+    setPlaceInitial({
+      name: `Убежище для ${g.name}`.slice(0, 60),
+      description: `Место с условиями для ${g.name}`,
+      capacity: 1,
+      temperature: g.temperature,
+      attic: g.conditions.includes('attic'),
+      people: false,
+      mirrors: false,
+      humidity: g.conditions.includes('damp') ? 85 : 45,
+      light: g.conditions.includes('dark') ? 15 : 40,
+      noise: g.conditions.includes('quiet') ? 15 : 30,
+      maxAnxiety: 10,
+      image: g.conditions.includes('damp') && !g.conditions.includes('attic') ? 'cellar' : 'castle',
+    });
+    setPlaceFormVersion((v) => v + 1);
+    setShowPlaceForm(true);
+    setTab('Места');
+    setPending(null);
+    setMessage(
+      `Параметры для ${g.name} заполнены. Проверьте их и нажмите «Добавить место». После сохранения повторите подбор.`,
+    );
+  }
   function select(id: string) {
     setSelected(id);
     setTarget(assignments[id] ?? '');
@@ -418,7 +453,7 @@ export default function App() {
                     return (
                       <button
                         key={g.id}
-                        className={`request ${selected === g.id ? 'selected' : ''}`}
+                        className={`request request-${bad.length ? 'conflict' : p ? 'assigned' : 'unassigned'} ${selected === g.id ? 'selected' : ''}`}
                         onClick={() => select(g.id)}
                       >
                         <img
@@ -441,7 +476,7 @@ export default function App() {
                             <span>Тревожность {g.anxiety}/10</span>
                           </span>
                         </span>
-                        <span className={`badge ${bad.length ? 'bad' : p ? 'good' : ''}`}>
+                        <span className={`badge ${bad.length ? 'bad' : p ? 'good' : 'warning'}`}>
                           {bad.length ? 'Конфликт' : p ? 'Назначено' : 'Без места'}
                         </span>
                       </button>
@@ -475,7 +510,18 @@ export default function App() {
                       width="160"
                       height="160"
                     />
-                    <h2>{ghost.name}</h2>
+                    <h2 ref={detailHeading} tabIndex={-1}>
+                      {ghost.name}
+                    </h2>
+                    <span
+                      className={`badge ${violations(ghost).length ? 'bad' : assignments[ghost.id] ? 'good' : 'warning'}`}
+                    >
+                      {violations(ghost).length
+                        ? 'Конфликт'
+                        : assignments[ghost.id]
+                          ? 'Назначено'
+                          : 'Без места'}
+                    </span>
                     <p className="muted">В поисках места, которое можно назвать своим.</p>
                     <dl className="facts">
                       <div>
@@ -510,15 +556,11 @@ export default function App() {
                       </h3>
                       {assignments[ghost.id] ? (
                         <>
-                          <p>
-                            {
-                              relocation.evaluate(
-                                ghost,
-                                places.find((p) => p.id === assignments[ghost.id])!,
-                                today,
-                              ).explanation
-                            }
-                          </p>
+                          <ComfortPanel
+                            ghost={ghost}
+                            place={places.find((p) => p.id === assignments[ghost.id])!}
+                            today={today}
+                          />
                           {violations(ghost).length > 0 && (
                             <ul className="red">
                               {violations(ghost).map((c) => (
@@ -535,6 +577,25 @@ export default function App() {
                             ? 'Подходящих свободных мест нет. Причины для каждого адреса — в списке ниже.'
                             : 'Есть подходящие места. Запустите подбор или назначьте адрес вручную.'}
                         </p>
+                      )}
+                      {(!assignments[ghost.id] ||
+                        places.every(
+                          (p) => relocation.conflicts(ghost, p, assignments, today).length > 0,
+                        )) && (
+                        <div className="ideal-action">
+                          <button
+                            className="primary ideal-button"
+                            onClick={() => createIdealPlace(ghost)}
+                          >
+                            🪄 Создать идеальное место для {ghost.name}
+                          </button>
+                          {ghost.deadline < today && (
+                            <p className="deadline-note">
+                              Дедлайн просрочен. Новый адрес не изменит срок: продлите его в заявке
+                              перед подбором.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                     <label className="manual-label">
@@ -554,14 +615,14 @@ export default function App() {
                         ))}
                       </select>
                     </label>
-                    {target && (
+                    {target && target !== assignments[ghost.id] && (
                       <div className="candidate">
                         {(() => {
                           const p = places.find((p) => p.id === target)!;
                           const c = relocation.conflicts(ghost, p, assignments, today);
                           return (
                             <>
-                              <p>{relocation.evaluate(ghost, p, today).explanation}</p>
+                              <ComfortPanel ghost={ghost} place={p} today={today} />
                               {c.length ? (
                                 <ul className="red">
                                   {c.map((s) => (
@@ -672,12 +733,23 @@ export default function App() {
           <section>
             <div className="section-heading places-heading">
               <h2>Места обитания · {places.length}</h2>
-              <button className="primary" onClick={() => setShowPlaceForm(!showPlaceForm)}>
+              <button
+                className="primary"
+                onClick={() => {
+                  if (!showPlaceForm) {
+                    setPlaceInitial(undefined);
+                    setPlaceFormVersion((v) => v + 1);
+                  }
+                  setShowPlaceForm(!showPlaceForm);
+                }}
+              >
                 {showPlaceForm ? 'Закрыть форму' : '+ Новое место'}
               </button>
             </div>
             {showPlaceForm && (
               <PlaceForm
+                key={placeFormVersion}
+                initialData={placeInitial}
                 onCancel={() => setShowPlaceForm(false)}
                 onAdd={(p) => {
                   if (places.length >= 50) {
@@ -711,6 +783,33 @@ export default function App() {
                         {occupied(p.id)}/{p.capacity}
                       </span>
                     </div>
+                    <section className="residents" aria-label={`Текущие жильцы: ${p.name}`}>
+                      <h3>Текущие жильцы</h3>
+                      {ghosts.some((g) => assignments[g.id] === p.id) ? (
+                        <ul>
+                          {ghosts
+                            .filter((g) => assignments[g.id] === p.id)
+                            .map((g) => (
+                              <li key={g.id}>
+                                <button
+                                  className="resident"
+                                  onClick={() => {
+                                    focusRequest.current = true;
+                                    select(g.id);
+                                    setTab('Заявки');
+                                  }}
+                                >
+                                  <img src={portraitUrl(g)} alt="" width="36" height="36" />
+                                  <span>{g.name}</span>
+                                  <span aria-hidden="true">↗</span>
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p className="residents-empty">Пока никто не заселен</p>
+                      )}
+                    </section>
                     <p>{p.description}</p>
                     <dl className="facts">
                       <div>

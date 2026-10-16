@@ -1,13 +1,19 @@
-import type { FormEvent } from 'react';
+import { useEffect, useRef, type FormEvent } from 'react';
 import type { Place } from './domain';
 import { assetUrl, placeImages } from './assets';
 export default function PlaceForm({
   onAdd,
   onCancel,
+  initialData,
 }: {
   onAdd: (place: Place) => void;
   onCancel: () => void;
+  initialData?: Partial<Place>;
 }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -38,7 +44,9 @@ export default function PlaceForm({
   }
   return (
     <form className="new-form place-form" onSubmit={submit}>
-      <h2>Новое место обитания</h2>
+      <h2 ref={heading} tabIndex={-1}>
+        Новое место обитания
+      </h2>
       <label>
         Название
         <input
@@ -47,18 +55,29 @@ export default function PlaceForm({
           maxLength={60}
           onInput={(e) => e.currentTarget.setCustomValidity('')}
           placeholder="Например, Усадьба у озера"
+          defaultValue={initialData?.name ?? ''}
         />
       </label>
       <label>
         Описание
-        <input name="description" required maxLength={180} />
+        <input
+          name="description"
+          required
+          maxLength={180}
+          defaultValue={initialData?.description ?? ''}
+        />
       </label>
       <fieldset>
         <legend>Изображение места</legend>
         <div className="image-options">
           {placeImages.map((image, i) => (
             <label key={image}>
-              <input type="radio" name="image" value={image} defaultChecked={i === 0} />
+              <input
+                type="radio"
+                name="image"
+                value={image}
+                defaultChecked={image === (initialData?.image ?? placeImages[0])}
+              />
               <img
                 src={assetUrl(image)}
                 alt={['Замок', 'Маяк', 'Библиотека', 'Театр', 'Типография'][i]}
@@ -83,7 +102,12 @@ export default function PlaceForm({
               name={String(name)}
               min={min}
               max={max}
-              defaultValue={value}
+              defaultValue={
+                initialData?.[
+                  String(name) as
+                    'capacity' | 'temperature' | 'light' | 'noise' | 'humidity' | 'maxAnxiety'
+                ] ?? value
+              }
               required
               step="1"
             />
@@ -93,15 +117,15 @@ export default function PlaceForm({
       <fieldset>
         <legend>Особенности</legend>
         <label className="check">
-          <input type="checkbox" name="people" />
+          <input type="checkbox" name="people" defaultChecked={initialData?.people ?? false} />
           Есть люди
         </label>
         <label className="check">
-          <input type="checkbox" name="mirrors" />
+          <input type="checkbox" name="mirrors" defaultChecked={initialData?.mirrors ?? false} />
           Есть зеркала
         </label>
         <label className="check">
-          <input type="checkbox" name="attic" />
+          <input type="checkbox" name="attic" defaultChecked={initialData?.attic ?? false} />
           Есть чердак
         </label>
       </fieldset>
