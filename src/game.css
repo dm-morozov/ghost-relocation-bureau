@@ -77,9 +77,42 @@
   gap: 8px;
 }
 .game-upgrades button {
+  display: grid;
+  gap: 6px;
   width: 100%;
   text-align: left;
   font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.game-upgrades button:disabled {
+  opacity: 1;
+  color: inherit;
+  background: transparent;
+  border-style: dashed;
+}
+.game-upgrade-state {
+  font-weight: 600;
+}
+.game-condition-guide {
+  margin: 0;
+  line-height: 1.65;
+}
+.game-place-stats {
+  clear: both;
+  display: grid;
+  gap: 8px;
+  line-height: 1.5;
+}
+.game-place-stats div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 12px;
+}
+.game-place-stats dd {
+  margin: 0;
 }
 .game-residents {
   min-height: 24px;
@@ -99,6 +132,16 @@
 .game-log li {
   margin-block: 10px;
   line-height: 1.5;
+}
+.game-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.game-preview .game-actions button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .game-log summary {
   cursor: pointer;

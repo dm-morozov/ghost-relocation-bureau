@@ -1,0 +1,27 @@
+.ideal-place-action {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ideal-place-action p {
+  margin-bottom: 10px;
+}
+.ideal-place-action ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+.ideal-place-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ideal-place-action-buttons button {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  white-space: normal;
+}
+@media (max-width: 390px) {
+  .ideal-place-action-buttons button {
+    width: 100%;
+  }
+}

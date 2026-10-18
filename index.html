@@ -2,7 +2,28 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Resolve before styles and React load so the first paint uses the saved preference.
+      (() => {
+        let preference = 'system';
+        try {
+          const stored = localStorage.getItem('quiet-address-theme');
+          if (stored === 'light' || stored === 'dark') preference = stored;
+        } catch {
+          // Storage can be unavailable in private or restricted browser contexts.
+        }
+        const dark =
+          preference === 'dark' ||
+          (preference === 'system' &&
+            typeof matchMedia === 'function' &&
+            matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./brand/mark-32.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./brand/mark-192.png" />
     <meta name="theme-color" content="#173e35" />
     <meta
       name="description"

@@ -10,6 +10,18 @@ import { parseSession, storageKey } from './storage';
 const saved = () => parseSession(localStorage.getItem(storageKey)!);
 beforeEach(() => {
   localStorage.clear();
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    },
+  });
   delete document.documentElement.dataset.theme;
 });
 afterEach(() => {
@@ -22,16 +34,15 @@ describe('завершённые сценарии оператора', () => {
   it('переключает ночную тему и восстанавливает её после перезагрузки', async () => {
     const user = userEvent.setup();
     const view = render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Ночная смена' }));
+    await user.click(screen.getByRole('radio', { name: 'Ночная' }));
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(localStorage.getItem('quiet-address-theme')).toBe('dark');
-    expect(screen.getByRole('button', { name: 'Дневной архив' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    );
+    expect((screen.getByRole('radio', { name: 'Ночная' }) as HTMLInputElement).checked).toBe(true);
     view.unmount();
     render(<App />);
     expect(document.documentElement.dataset.theme).toBe('dark');
-    await user.click(screen.getByRole('button', { name: 'Дневной архив' }));
+    expect((screen.getByRole('radio', { name: 'Ночная' }) as HTMLInputElement).checked).toBe(true);
+    await user.click(screen.getByRole('radio', { name: 'Дневная' }));
     expect(localStorage.getItem('quiet-address-theme')).toBe('light');
   });
   it('продлевает срочный дедлайн на семь дней, сохраняет изменение и позволяет отменить', async () => {
@@ -60,6 +71,8 @@ describe('завершённые сценарии оператора', () => {
         screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
       ).toBe('false'),
     );
+    expect(saved().assignments).toEqual({});
+    await user.click(await screen.findByRole('button', { name: 'Применить план' }));
     expect(saved().assignments).toEqual(expected);
     expect(screen.getByText(/Подбор завершён/)).toBeTruthy();
   });
@@ -97,7 +110,7 @@ describe('завершённые сценарии оператора', () => {
     expect(saved()).toEqual(before);
     expect(screen.queryByRole('form', { name: 'Редактирование заявки' })).toBeNull();
     await user.click(screen.getByRole('button', { name: /02.*Места/ }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledTimes(1);
   });
   it('сохраняет повреждённую запись до явно подтверждённого начала новой сессии', async () => {
     const user = userEvent.setup();

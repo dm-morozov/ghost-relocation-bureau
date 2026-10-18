@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import ReportView from './ReportView';
 import { createReport, reportJSON, reportMarkdown, type ReportInput } from './report';
 import type { Ghost, Place } from './domain';
@@ -88,6 +88,10 @@ describe('данные отчёта', () => {
     expect(reportMarkdown(report)).toContain('Заявок нет.');
     render(<ReportView {...data} onOpenRequest={vi.fn()} />);
     expect(screen.getByText('Заявок нет. Отчёт пуст.')).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: 'Требуют внимания' })).queryAllByRole('listitem'),
+    ).toHaveLength(0);
+    expect(screen.getByText('Проблемных заявок пока нет.')).toBeTruthy();
     expect(document.body.textContent).not.toContain('NaN');
   });
   it('экспортирует все строки и закрепления, экранируя Markdown', () => {
@@ -102,6 +106,115 @@ describe('данные отчёта', () => {
 });
 
 describe('оператор работает с отчётом', () => {
+  it('выделяет проблемы по сроку, числу нарушений и тревожности и открывает выбранную заявку', () => {
+    const open = vi.fn();
+    render(
+      <ReportView
+        {...input({
+          ghosts: [
+            { ...ghost, id: 'later', name: 'Позже', deadline: '2026-10-22' },
+            { ...ghost, id: 'low', name: 'Спокойный', anxiety: 1 },
+            { ...ghost, id: 'high', name: 'Тревожный', anxiety: 9 },
+            {
+              ...ghost,
+              id: 'conflict',
+              name: 'Два нарушения',
+              conditions: ['noPeople', 'noMirrors'],
+            },
+            { ...ghost, id: 'safe', name: 'Без нарушений' },
+            { ...ghost, id: 'early', name: 'Срочный', deadline: '2026-10-19' },
+          ],
+          places: [{ ...place, capacity: 10, people: true, mirrors: true }],
+          assignments: { conflict: 'p1', safe: 'p1' },
+        })}
+        onOpenRequest={open}
+      />,
+    );
+    const attention = within(screen.getByRole('region', { name: 'Требуют внимания' }));
+    const rows = attention.getAllByRole('listitem');
+    expect(rows.map((row) => row.querySelector('strong')?.textContent)).toEqual([
+      'Срочный',
+      'Два нарушения',
+      'Тревожный',
+      'Спокойный',
+      'Позже',
+    ]);
+    expect(attention.queryByText('Без нарушений')).toBeNull();
+    expect(rows[1].textContent).toContain('Конфликт');
+    expect(rows[1].textContent).toContain('Без людей');
+    expect(rows[1].textContent).toContain('2026-10-20');
+    expect(rows[2].textContent).toContain('Без места');
+    expect(rows[2].textContent).toContain('Тревожность: 9/10');
+    expect(rows[2].textContent).toContain('Есть подходящий свободный адрес');
+    fireEvent.click(attention.getByRole('button', { name: 'Разобрать заявку: Тревожный' }));
+    expect(open).toHaveBeenCalledWith('high');
+  });
+  it('показывает назначения отдельно от завершённых переездов, включая конфликтный переезд', () => {
+    render(
+      <ReportView
+        {...input({
+          ghosts: [
+            { ...ghost, settledAt: '2026-10-18', conditions: ['noPeople'] },
+            { ...ghost, id: 'planned' },
+            { ...ghost, id: 'without', settledAt: '2026-10-18' },
+          ],
+          places: [{ ...place, people: true }],
+          assignments: { g1: 'p1', planned: 'p1' },
+        })}
+        onOpenRequest={vi.fn()}
+      />,
+    );
+    const progress = screen.getByRole('region', { name: 'Ход переселения' });
+    const metrics = Array.from(progress.querySelectorAll('dl > div')).map((item) => [
+      item.querySelector('dt')?.textContent,
+      item.querySelector('dd')?.textContent,
+    ]);
+    expect(metrics).toEqual([
+      ['Назначено адресов', '2'],
+      ['Переселено', '1'],
+      ['Ожидает переезда', '1'],
+      ['Без места', '1'],
+    ]);
+    expect(progress.textContent).toContain('Конфликты могут быть у назначенных заявок');
+    const table = screen.getByRole('table');
+    expect(table.querySelector('.report-status.conflict')?.textContent).toBe('Конфликт');
+    expect(within(table).getAllByText('Переселено: 2026-10-18')).toHaveLength(1);
+    expect(within(table).getByText('Ожидает переезда')).toBeTruthy();
+    expect(
+      within(table).getByText('Есть подтверждение от 2026-10-18, но адрес не назначен.'),
+    ).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Распределение заявок' }).textContent).toContain(
+      'С конфликтами',
+    );
+  });
+  it('сообщает об отсутствии проблем при совместимом назначении', () => {
+    render(<ReportView {...input()} onOpenRequest={vi.fn()} />);
+    const attention = within(screen.getByRole('region', { name: 'Требуют внимания' }));
+    expect(attention.getByText('Заявок с конфликтами или без места нет.')).toBeTruthy();
+    expect(attention.queryAllByRole('listitem')).toHaveLength(0);
+  });
+  it('сохраняет все 50 строк с длинными именами, пояснениями и закреплениями', () => {
+    const ghosts = Array.from({ length: 50 }, (_, index) => ({
+      ...ghost,
+      id: `long-${index}`,
+      name: `Привидение ${index + 1} · ${'Длинное имя без сокращений '.repeat(6).trim()}`,
+    }));
+    const data = input({
+      ghosts,
+      assignments: { [ghosts[0].id]: place.id },
+      pinned: [ghosts[0].id],
+    });
+    render(<ReportView {...data} onOpenRequest={vi.fn()} />);
+    const table = screen.getByRole('table');
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(50);
+    expect(table.querySelectorAll('thead th[scope="col"]')).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^Открыть заявку:/ })).toHaveLength(50);
+    expect(within(table).getByText(ghosts[49].name)).toBeTruthy();
+    expect(table.textContent).toContain('Закреплено вручную');
+    expect(table.querySelectorAll('.report-explanation')).toHaveLength(50);
+    expect(table.querySelectorAll('.report-status.unassigned')).toHaveLength(49);
+    expect(JSON.parse(reportJSON(createReport(data))).requests).toHaveLength(50);
+  });
   it('копирует сводку и запускает печать, открывает выбранную заявку', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });

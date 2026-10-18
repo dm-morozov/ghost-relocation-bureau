@@ -1,0 +1,43 @@
+.brand .brand-symbol {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  flex: 0 0 52px;
+}
+.brand .brand-wording {
+  display: block;
+  min-width: 0;
+}
+.brand .brand-wordmark {
+  display: block;
+  width: 160px;
+  max-width: 100%;
+  height: auto;
+}
+.brand .brand-wording small {
+  font-size: 10px;
+  line-height: 1.45;
+  margin-top: 6px;
+  color: #d2dfd5;
+}
+.brand {
+  gap: 10px;
+}
+@media (min-width: 701px) and (max-width: 1150px) {
+  .brand .brand-symbol {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+  .brand .brand-wordmark {
+    width: 116px;
+  }
+  .brand .brand-wording small {
+    font-size: 9px;
+  }
+}
+@media (max-width: 700px) {
+  .brand .brand-wordmark {
+    width: 180px;
+  }
+}

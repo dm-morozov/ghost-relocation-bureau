@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { placeImageUrl, portraitUrl } from './assets';
 import ArtImage from './ArtImage';
+import CharacterStory from './CharacterStory';
+import StorageConflict from './StorageConflict';
+import { useStorageSync } from './useStorageSync';
+import { readStorageBaseline } from './storage-sync';
+import { saveFile } from './backup';
 import { conditionLabels, relocation } from './domain';
 import {
   advancePreview,
@@ -20,14 +25,36 @@ import {
 } from './game';
 import './game.css';
 
+const upgradeDetails = {
+  quiet: { title: 'Шумоизоляция', field: 'noise', label: 'Шум', condition: 'тишины' },
+  dark: { title: 'Шторы', field: 'light', label: 'Свет', condition: 'темноты' },
+  damp: { title: 'Увлажнение', field: 'humidity', label: 'Влажность', condition: 'сырости' },
+} as const;
+// Read the resulting values from the game action, keeping the UI tied to its rules.
+const upgradeTargets = Object.fromEntries(
+  (Object.keys(upgradeDetails) as Upgrade[]).map((upgrade) => {
+    const initial = newGame();
+    const improved = play(initial, { type: 'upgrade', placeId: initial.places[0].id, upgrade });
+    return [upgrade, improved.places[0][upgradeDetails[upgrade].field]];
+  }),
+) as Record<Upgrade, number>;
+
 function loadGame() {
+  const baseline = readStorageBaseline(gameStorageKey);
   try {
-    const raw = localStorage.getItem(gameStorageKey);
-    return { state: raw !== null ? parseGame(raw) : newGame(), recovery: false, error: '' };
+    if (!baseline.ok) throw new Error('Storage unavailable');
+    const raw = baseline.raw;
+    return {
+      state: raw !== null ? parseGame(raw) : newGame(),
+      recovery: false,
+      error: '',
+      baseline,
+    };
   } catch {
     return {
       state: newGame(),
       recovery: true,
+      baseline,
       error:
         'Не удалось прочитать сохранение смены. Оно сохранено без изменений. Можно вернуться позже или явно начать новую игру.',
     };
@@ -36,24 +63,41 @@ function loadGame() {
 
 export default function ShiftGame() {
   const [boot] = useState(loadGame);
+  const {
+    sync,
+    state: syncState,
+    blocked: syncBlocked,
+  } = useStorageSync({
+    key: gameStorageKey,
+    baseline: boot.baseline,
+    parse: (raw) => (raw === null ? newGame() : parseGame(raw)),
+  });
   const [state, setState] = useState(boot.state);
   const [recovery, setRecovery] = useState(boot.recovery);
   const [error, setError] = useState(boot.error);
   const [preview, setPreview] = useState(false);
   const [restart, setRestart] = useState(false);
+  const gameHeading = useRef<HTMLHeadingElement>(null);
+  const forecastHeading = useRef<HTMLHeadingElement>(null);
+  const forecastButton = useRef<HTMLButtonElement>(null);
+  const restartButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (recovery) return;
-    try {
-      localStorage.setItem(gameStorageKey, serializeGame(state));
-    } catch {
-      setError(
-        'Не удалось сохранить смену в браузере. Оставьте вкладку открытой, чтобы продолжить игру.',
-      );
+    if (preview) forecastHeading.current?.focus();
+    else if (returnFocus.current) {
+      returnFocus.current.focus();
+      returnFocus.current = null;
     }
-  }, [state, recovery]);
+  });
+  useEffect(() => {
+    if (recovery || syncBlocked) return;
+    sync.save(serializeGame(state));
+  }, [state, recovery, syncBlocked, sync]);
   const act = (action: GameAction) => {
+    if (!sync.check()) return;
     try {
       setState(play(state, action));
+      if (action.type === 'advance') returnFocus.current = gameHeading.current;
       setError('');
       setPreview(false);
     } catch (cause) {
@@ -61,7 +105,17 @@ export default function ShiftGame() {
     }
   };
   const reset = () => {
+    if (!sync.check()) return;
+    if (recovery && boot.baseline.ok && boot.baseline.raw !== null) {
+      try {
+        localStorage.setItem('quiet-address-game-recovery-v1', boot.baseline.raw);
+      } catch {
+        setError('Не удалось сохранить исходник игры. Сброс отменён; скачайте локальную копию.');
+        return;
+      }
+    }
     setState(newGame());
+    returnFocus.current = gameHeading.current;
     setRecovery(false);
     setError('');
     setPreview(false);
@@ -75,7 +129,9 @@ export default function ShiftGame() {
     <section className="shift-game" aria-label="Смена в бюро">
       <header className="game-intro">
         <p className="eyebrow">Пошаговая история · 3 смены · отдельное сохранение</p>
-        <h2>Ночная вахта: шесть тихих адресов</h2>
+        <h2 ref={gameHeading} tabIndex={-1}>
+          Ночная вахта: шесть тихих адресов
+        </h2>
         <p>
           Помогите шести привидениям за три смены. На всё бюро — три жетона улучшений. Каждый дом
           вмещает двух постоянных жильцов. Время движется только после подтверждения конца смены.
@@ -85,6 +141,26 @@ export default function ShiftGame() {
           домов решаете вы. Решения песочницы остаются отдельно.
         </p>
       </header>
+      <StorageConflict
+        state={syncState}
+        subject="Ночная вахта"
+        onDownloadLocal={() => {
+          try {
+            saveFile(serializeGame(state), 'quiet-address-game-local.json');
+          } catch {
+            setError('Не удалось скачать локальную копию игры. Оставьте вкладку открытой.');
+          }
+        }}
+        onLoadFresh={() =>
+          sync.loadFresh((next) => {
+            setState(next);
+            setRecovery(false);
+            setError('');
+            setPreview(false);
+            setRestart(false);
+          })
+        }
+      />
       {error && (
         <div role="alert" className="notice warning">
           {error}
@@ -101,7 +177,7 @@ export default function ShiftGame() {
           <strong>{housed} / 6</strong> переселено
         </span>
         <span>
-          <strong>{score} / 600</strong> очков комфорта
+          <strong>{score}</strong> очков комфорта
         </span>
       </div>
       {recovery ? (
@@ -114,13 +190,15 @@ export default function ShiftGame() {
             <div className="game-finale" role="status">
               <h3>{housed === 6 ? 'Все нашли свой тихий адрес!' : 'Вахта завершена'}</h3>
               <p>
-                Переселено {housed} из 6, без адреса осталось {6 - housed}. Комфорт: {score} из 600.
+                Переселено {housed} из 6, без адреса осталось {6 - housed}. Комфорт: {score} очков.
                 Очки — сумма комфорта при переселении; нерасселённая заявка даёт 0.
               </p>
               <p>
-                {housed === 6
-                  ? 'Попробуйте другую комбинацию улучшений, чтобы повысить комфорт.'
-                  : 'Улучшение одного дома под каждую волну помогает разместить больше жильцов. Повторная игра начинается с чистой кампании.'}
+                {score >= 476
+                  ? 'Достигнут лучший результат этой кампании. Все шесть жильцов нашли дом.'
+                  : housed === 6
+                    ? 'Попробуйте другую комбинацию улучшений, чтобы повысить комфорт.'
+                    : 'Улучшение одного дома под каждую волну помогает разместить больше жильцов. Повторная игра начинается с чистой кампании.'}
               </p>
             </div>
           ) : (
@@ -143,6 +221,7 @@ export default function ShiftGame() {
                   <article className="game-ghost" key={ghost.id}>
                     <ArtImage src={portraitUrl(ghost)} width="80" height="80" sizes="80px" alt="" />
                     <h3>{ghost.name}</h3>
+                    <CharacterStory ghost={ghost} />
                     <p>
                       {ghost.conditions.map((c) => conditionLabels[c]).join(', ')} · идеально{' '}
                       {ghost.temperature} °C
@@ -177,6 +256,11 @@ export default function ShiftGame() {
               </button>
             </>
           )}
+          <p className="game-condition-guide">
+            Условия дома: тишина — шум ≤ 30/100; темнота — свет ≤ 30/100; сырость — влажность ≥
+            65/100. Шум, свет и влажность измеряются по шкале от 0 до 100. Улучшение действует до
+            конца кампании, но не добавляет мест и не меняет температуру.
+          </p>
           <div className="game-buildings">
             {state.places.map((place) => {
               const residents = state.outcomes
@@ -186,7 +270,11 @@ export default function ShiftGame() {
                 (id) => id === place.id,
               ).length;
               return (
-                <article key={place.id} className="game-building">
+                <article
+                  key={place.id}
+                  className="game-building"
+                  aria-labelledby={`game-${place.id}`}
+                >
                   <ArtImage
                     className="game-place-image"
                     src={placeImageUrl(place)}
@@ -196,11 +284,31 @@ export default function ShiftGame() {
                     loading="lazy"
                     alt=""
                   />
-                  <h3>{place.name}</h3>
-                  <p>
-                    {place.temperature} °C · шум {place.noise} · свет {place.light} · влажность{' '}
-                    {place.humidity}
-                  </p>
+                  <h3 id={`game-${place.id}`}>{place.name}</h3>
+                  <dl className="game-place-stats">
+                    <div>
+                      <dt>Температура</dt>
+                      <dd>{place.temperature} °C</dd>
+                    </div>
+                    <div>
+                      <dt>Шум</dt>
+                      <dd>
+                        {place.noise}/100 · {place.noise <= 30 ? 'тихо' : 'шумно'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Свет</dt>
+                      <dd>
+                        {place.light}/100 · {place.light <= 30 ? 'темно' : 'светло'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Влажность</dt>
+                      <dd>
+                        {place.humidity}/100 · {place.humidity >= 65 ? 'сыро' : 'сухо'}
+                      </dd>
+                    </div>
+                  </dl>
                   <p>
                     Заселено: {residents.length}/2{planned ? ` · в плане: ${planned}` : ''}
                   </p>
@@ -220,16 +328,33 @@ export default function ShiftGame() {
                   </div>
                   {!completed && (
                     <div className="game-upgrades">
-                      {(Object.keys(upgradeLabels) as Upgrade[]).map((upgrade) => (
-                        <button
-                          key={upgrade}
-                          type="button"
-                          disabled={!state.tokens || !upgradeAvailable(place, upgrade)}
-                          onClick={() => act({ type: 'upgrade', placeId: place.id, upgrade })}
-                        >
-                          {upgradeLabels[upgrade]} · 1 жетон
-                        </button>
-                      ))}
+                      {(Object.keys(upgradeLabels) as Upgrade[]).map((upgrade) => {
+                        const available = upgradeAvailable(place, upgrade);
+                        const detail = upgradeDetails[upgrade];
+                        return (
+                          <button
+                            key={upgrade}
+                            type="button"
+                            disabled={!state.tokens || !available}
+                            onClick={() => act({ type: 'upgrade', placeId: place.id, upgrade })}
+                          >
+                            <strong>{detail.title}</strong>{' '}
+                            <span>
+                              {detail.label}: {place[detail.field]}/100
+                              {available ? ` → ${upgradeTargets[upgrade]}/100` : ''}
+                              {' · '}условие {detail.condition}{' '}
+                              {available ? 'будет выполнено' : 'выполнено'}
+                            </span>{' '}
+                            <span className="game-upgrade-state">
+                              {!available
+                                ? 'Установлено'
+                                : state.tokens < 1
+                                  ? 'Недостаточно жетонов · нужно 1'
+                                  : 'Установить · 1 жетон'}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </article>
@@ -237,13 +362,20 @@ export default function ShiftGame() {
             })}
           </div>
           {!completed && (
-            <button className="primary" type="button" onClick={() => setPreview(true)}>
+            <button
+              ref={forecastButton}
+              className="primary"
+              type="button"
+              onClick={() => setPreview(true)}
+            >
               Прогноз завершения смены
             </button>
           )}
           {preview && !completed && (
             <section className="game-preview" aria-label="Последствия завершения смены">
-              <h3>Проверьте последствия</h3>
+              <h3 ref={forecastHeading} tabIndex={-1}>
+                Проверьте последствия
+              </h3>
               <ul>
                 {forecast.map((outcome) => (
                   <li key={outcome.ghostId}>
@@ -264,7 +396,13 @@ export default function ShiftGame() {
                 <button className="primary" type="button" onClick={() => act({ type: 'advance' })}>
                   Подтвердить и завершить смену
                 </button>
-                <button type="button" onClick={() => setPreview(false)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    returnFocus.current = forecastButton.current;
+                    setPreview(false);
+                  }}
+                >
                   Вернуться к решениям
                 </button>
               </div>
@@ -282,7 +420,7 @@ export default function ShiftGame() {
               <p>Улучшения и результаты смен появятся здесь.</p>
             )}
           </details>
-          <button type="button" onClick={() => setRestart(true)}>
+          <button ref={restartButton} type="button" onClick={() => setRestart(true)}>
             Начать заново
           </button>
         </>
@@ -296,7 +434,13 @@ export default function ShiftGame() {
             <button type="button" onClick={reset}>
               Да, начать новую игру
             </button>
-            <button type="button" onClick={() => setRestart(false)}>
+            <button
+              type="button"
+              onClick={() => {
+                returnFocus.current = restartButton.current ?? gameHeading.current;
+                setRestart(false);
+              }}
+            >
               Отмена
             </button>
           </div>

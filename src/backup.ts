@@ -1,15 +1,18 @@
 import { parseSession, storageKey, type Session } from './storage';
 import { demoGhosts, places } from './data';
 import { todayISO } from './domain';
+import { readStorageBaseline, type StorageBaseline } from './storage-sync';
 
 export function loadSession(): Session & {
   error: string;
   blocked: boolean;
   original: string | null;
+  baseline: StorageBaseline;
 } {
-  let original: string | null = null;
+  const baseline = readStorageBaseline(storageKey);
+  const original = baseline.ok ? baseline.raw : null;
   try {
-    original = localStorage.getItem(storageKey);
+    if (!baseline.ok) throw new Error('Storage unavailable');
     return {
       ...(original !== null
         ? parseSession(original)
@@ -22,6 +25,7 @@ export function loadSession(): Session & {
       error: '',
       blocked: false,
       original,
+      baseline,
     };
   } catch {
     return {
@@ -33,6 +37,7 @@ export function loadSession(): Session & {
         'Сохранённая сессия недоступна или повреждена. Открыта временная демосессия. Исходные данные не перезаписаны.',
       blocked: true,
       original,
+      baseline,
     };
   }
 }
@@ -63,9 +68,13 @@ export function saveFile(text: string, filename: string) {
 }
 
 export const recoveryKey = 'quiet-address-recovery-v1';
-export function resetSavedSession() {
+export function preserveSavedSession(): string | null {
   const original = localStorage.getItem(storageKey);
   // Save first: if storage is unavailable or full, leave the source untouched.
   if (original !== null) localStorage.setItem(recoveryKey, original);
+  return original;
+}
+export function resetSavedSession() {
+  preserveSavedSession();
   localStorage.removeItem(storageKey);
 }

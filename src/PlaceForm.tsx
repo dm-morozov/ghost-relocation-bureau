@@ -8,12 +8,14 @@ export default function PlaceForm({
   initialData,
   existingPlaces = [],
   editing = false,
+  onDirty,
 }: {
   onAdd: (place: Place) => void;
   onCancel: () => void;
   initialData?: Partial<Place>;
   existingPlaces?: readonly Place[];
   editing?: boolean;
+  onDirty?: () => void;
 }) {
   const options =
     editing && initialData?.id && initialData.name
@@ -55,7 +57,12 @@ export default function PlaceForm({
     });
   }
   return (
-    <form className="new-form place-form" onSubmit={submit}>
+    <form
+      className="new-form place-form"
+      aria-label={editing ? 'Редактирование места' : 'Новое место'}
+      onChange={onDirty}
+      onSubmit={submit}
+    >
       <h2 ref={heading} tabIndex={-1}>
         {editing ? 'Изменить место обитания' : 'Новое место обитания'}
       </h2>

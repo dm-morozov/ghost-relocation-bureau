@@ -1,14 +1,84 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShiftGame from './ShiftGame';
-import { gameStorageKey, parseGame } from './game';
+import { gameStorageKey, newGame, parseGame, play, serializeGame } from './game';
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
 
 describe('интерфейс смены', () => {
+  it('объясняет шкалы и показывает эффект всех улучшений до расхода жетона', () => {
+    render(<ShiftGame />);
+    const castle = within(screen.getByRole('article', { name: 'Замок на холме' }));
+    expect(castle.getByText('10 °C')).toBeTruthy();
+    expect(castle.getByText('50/100 · шумно')).toBeTruthy();
+    expect(castle.getByText('60/100 · светло')).toBeTruthy();
+    expect(castle.getByText('40/100 · сухо')).toBeTruthy();
+    expect(screen.getByText(/тишина — шум ≤ 30\/100; темнота — свет ≤ 30\/100/)).toBeTruthy();
+    expect(
+      castle.getByRole('button', {
+        name: /Шумоизоляция Шум: 50\/100 → 10\/100 · условие тишины будет выполнено Установить · 1 жетон/,
+      }),
+    ).toBeTruthy();
+    expect(
+      castle.getByRole('button', {
+        name: /Шторы Свет: 60\/100 → 10\/100 · условие темноты будет выполнено/,
+      }),
+    ).toBeTruthy();
+    expect(
+      castle.getByRole('button', {
+        name: /Увлажнение Влажность: 40\/100 → 85\/100 · условие сырости будет выполнено/,
+      }),
+    ).toBeTruthy();
+    const saved = parseGame(localStorage.getItem(gameStorageKey)!);
+    expect(saved.tokens).toBe(3);
+    expect(saved.actions).toHaveLength(0);
+  });
+
+  it('устанавливает улучшение с клавиатуры и сразу обновляет характеристику и статус', async () => {
+    const user = userEvent.setup();
+    render(<ShiftGame />);
+    const castle = within(screen.getByRole('article', { name: 'Замок на холме' }));
+    const button = castle.getByRole('button', { name: /Шумоизоляция/ });
+    button.focus();
+    await user.keyboard('{Enter}');
+    expect(castle.getByText('10/100 · тихо')).toBeTruthy();
+    expect(
+      castle
+        .getByRole('button', {
+          name: /Шумоизоляция Шум: 10\/100 · условие тишины выполнено Установлено/,
+        })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    const saved = parseGame(localStorage.getItem(gameStorageKey)!);
+    expect(saved.tokens).toBe(2);
+    expect(saved.actions).toEqual([{ type: 'upgrade', placeId: 'castle', upgrade: 'quiet' }]);
+    expect(castle.getByText('60/100 · светло')).toBeTruthy();
+    expect(castle.getByText('40/100 · сухо')).toBeTruthy();
+  });
+
+  it('различает установленное улучшение и нехватку жетонов, сохраняя предпросмотр', async () => {
+    const user = userEvent.setup();
+    let state = newGame();
+    for (const place of state.places) {
+      state = play(state, { type: 'upgrade', placeId: place.id, upgrade: 'quiet' });
+    }
+    localStorage.setItem(gameStorageKey, serializeGame(state));
+    render(<ShiftGame />);
+    const castle = within(screen.getByRole('article', { name: 'Замок на холме' }));
+    expect(
+      castle.getByRole('button', { name: /Шумоизоляция.*Установлено/ }).hasAttribute('disabled'),
+    ).toBe(true);
+    const curtains = castle.getByRole('button', {
+      name: /Шторы Свет: 60\/100 → 10\/100.*Недостаточно жетонов · нужно 1/,
+    });
+    expect(curtains.hasAttribute('disabled')).toBe(true);
+    await user.click(curtains);
+    expect(parseGame(localStorage.getItem(gameStorageKey)!).actions).toHaveLength(3);
+  });
+
   it('считает пустую строку повреждённым сохранением и не перезаписывает её', () => {
     localStorage.setItem(gameStorageKey, '');
     render(<ShiftGame />);

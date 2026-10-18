@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent } from 'react';
-import { makeBackup, readBackup, saveFile } from './backup';
+import { makeBackup, preserveSavedSession, readBackup, recoveryKey, saveFile } from './backup';
 import type { Session } from './storage';
 
 export default function SessionTools({
@@ -8,16 +8,45 @@ export default function SessionTools({
   blocked,
   original,
   onResume,
+  canReplace = () => true,
 }: {
   session: Session;
   onRestore: (session: Session) => void;
   blocked: boolean;
   original: string | null;
   onResume: () => void;
+  canReplace?: () => boolean;
 }) {
   const [candidate, setCandidate] = useState<Session | null>(null);
   const [error, setError] = useState('');
   const [reset, setReset] = useState(false);
+  const [recovery, setRecovery] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(recoveryKey);
+    } catch {
+      return null;
+    }
+  });
+  function preserveOriginal() {
+    if (!canReplace()) {
+      setError(
+        'Сохранение изменилось или недоступно. Скачайте локальную копию и загрузите свежую версию.',
+      );
+      return false;
+    }
+    if (!blocked) return true;
+    try {
+      const saved = preserveSavedSession();
+      if (saved !== null) setRecovery(saved);
+      setError('');
+      return true;
+    } catch {
+      setError(
+        'Не удалось сохранить исходные данные для восстановления. Замена отменена; исходная сессия не изменена. Скачайте исходные данные и освободите место в браузере.',
+      );
+      return false;
+    }
+  }
   function download(text: string, filename: string) {
     try {
       saveFile(text, filename);
@@ -56,6 +85,11 @@ export default function SessionTools({
           Восстановить из файла
           <input type="file" accept=".json,application/json" onChange={read} />
         </label>
+        {recovery !== null && (
+          <button onClick={() => download(recovery, 'quiet-address-recovery.json')}>
+            Скачать сохранённый исходник
+          </button>
+        )}
       </div>
       {error && (
         <p role="alert" className="red">
@@ -71,6 +105,7 @@ export default function SessionTools({
           </p>
           <button
             onClick={() => {
+              if (!preserveOriginal()) return;
               onRestore(candidate);
               setCandidate(null);
             }}
@@ -100,6 +135,7 @@ export default function SessionTools({
               <button
                 className="danger-button"
                 onClick={() => {
+                  if (!preserveOriginal()) return;
                   onResume();
                   setReset(false);
                 }}

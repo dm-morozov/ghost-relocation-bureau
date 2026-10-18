@@ -1,11 +1,28 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseSession, storageKey } from './storage';
-beforeEach(() => localStorage.clear());
-afterEach(cleanup);
+beforeEach(() => {
+  localStorage.clear();
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    },
+  });
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 describe('оператор создаёт новые записи', () => {
   it('предзаполняет идеальное место для Эдгара и открывает его заявку из жильцов', async () => {
     const user = userEvent.setup();
@@ -31,6 +48,7 @@ describe('оператор создаёт новые записи', () => {
         screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
       ).toBe('false'),
     );
+    await user.click(await screen.findByRole('button', { name: 'Применить план' }));
     expect(
       screen.queryByRole('button', { name: '🪄 Создать идеальное место для Эдгар Безадресный' }),
     ).toBeNull();
@@ -73,6 +91,7 @@ describe('оператор создаёт новые записи', () => {
         screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
       ).toBe('false'),
     );
+    await user.click(await screen.findByRole('button', { name: 'Применить план' }));
     await user.click(screen.getByRole('button', { name: /Эдгар Безадресный/ }));
     expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
     const saved = parseSession(localStorage.getItem(storageKey)!);
@@ -114,6 +133,7 @@ describe('оператор управляет своей заявкой', () => 
         screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
       ).toBe('false'),
     );
+    await user.click(await screen.findByRole('button', { name: 'Применить план' }));
     let saved = parseSession(localStorage.getItem(storageKey)!);
     expect(saved.assignments.g1).toBe('castle');
     expect(saved.pinned).toEqual(['g1']);
@@ -148,6 +168,7 @@ describe('оператор управляет своей заявкой', () => 
         screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
       ).toBe('false'),
     );
+    await user.click(await screen.findByRole('button', { name: 'Применить план' }));
     const saved = parseSession(localStorage.getItem(storageKey)!);
     expect(saved.ghosts[0].anxiety).toBe(10);
     expect(saved.assignments.g1).toBe('castle');
@@ -155,6 +176,7 @@ describe('оператор управляет своей заявкой', () => 
   });
   it('отменяет правки и удаление, затем удаляет последнюю заявку с назначением и замочком', async () => {
     const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<App />);
     const session = parseSession(localStorage.getItem(storageKey)!);
     cleanup();

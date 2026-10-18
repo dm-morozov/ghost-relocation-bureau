@@ -43,9 +43,12 @@ export default function ReportView(props: ReportInput & { onOpenRequest: (id: st
   return (
     <section className="operator-report" aria-label="Отчёт о переселении">
       <header className="report-letterhead">
-        <div>
-          <p className="eyebrow">Бюро переселения привидений</p>
-          <h2>Тихий адрес · отчёт</h2>
+        <div className="report-letterhead-brand">
+          <img src={`${import.meta.env.BASE_URL}brand/mark-64.png`} alt="" width={48} height={48} />
+          <div>
+            <p className="eyebrow">Бюро переселения привидений</p>
+            <h2>Тихий адрес · отчёт</h2>
+          </div>
         </div>
         <p>
           Состояние на <time dateTime={report.date}>{report.date}</time>
@@ -82,6 +85,69 @@ export default function ReportView(props: ReportInput & { onOpenRequest: (id: st
         Отчёт отражает текущие назначения. Назначение с конфликтом требует решения оператора.
         JSON-отчёт не заменяет резервную копию сессии.
       </p>
+      <section className="report-progress" aria-label="Ход переселения">
+        <h3>Ход переселения</h3>
+        <dl className="report-metrics">
+          <div>
+            <dt>Назначено адресов</dt>
+            <dd>{report.assigned}</dd>
+          </div>
+          <div>
+            <dt>Переселено</dt>
+            <dd>{report.settled}</dd>
+          </div>
+          <div>
+            <dt>Ожидает переезда</dt>
+            <dd>{report.planned}</dd>
+          </div>
+          <div>
+            <dt>Без места</dt>
+            <dd>{report.unassigned}</dd>
+          </div>
+        </dl>
+        <p className="report-disclaimer">
+          Назначено адресов = переселено + ожидает переезда. Переселение учитывается после
+          подтверждения и при наличии адреса. Конфликты могут быть у назначенных заявок, в том числе
+          уже переселённых, и не прибавляются к этим показателям.
+        </p>
+      </section>
+      <section className="report-attention" aria-label="Требуют внимания">
+        <h3>Требуют внимания · {report.attention.length}</h3>
+        {report.attention.length ? (
+          <>
+            <p className="report-disclaimer">
+              Сначала ближайший срок, при равном сроке — больше нарушений, затем выше тревожность.
+            </p>
+            <ol className="report-attention-list">
+              {report.attention.map((row) => (
+                <li key={row.id}>
+                  <div className="report-attention-heading">
+                    <strong>{row.name}</strong>
+                    <span className={`report-status ${row.status}`}>
+                      {reportStatus[row.status as keyof typeof reportStatus]}
+                    </span>
+                  </div>
+                  <p>
+                    Срок: <time dateTime={row.deadline}>{row.deadline}</time>
+                    {' · '}Тревожность: {row.anxiety}/10
+                    {row.place && <> · Адрес: {row.place}</>}
+                  </p>
+                  <p className="report-explanation">Причина: {row.explanation}</p>
+                  <button className="text-button" onClick={() => props.onOpenRequest(row.id)}>
+                    Разобрать заявку: {row.name}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          <p className="report-empty">
+            {report.total
+              ? 'Заявок с конфликтами или без места нет.'
+              : 'Проблемных заявок пока нет.'}
+          </p>
+        )}
+      </section>
       <section className="report-distribution" aria-label="Распределение заявок">
         <h3>Распределение · {report.total} заявок</h3>
         <div className="report-stacked-bar" aria-hidden="true">
@@ -155,7 +221,12 @@ export default function ReportView(props: ReportInput & { onOpenRequest: (id: st
         {!report.total ? (
           <p className="report-empty">Заявок нет. Отчёт пуст.</p>
         ) : (
-          <div className="report-table-scroll">
+          <div
+            className="report-table-scroll"
+            role="region"
+            aria-label="Таблица назначений с горизонтальной прокруткой"
+            tabIndex={0}
+          >
             <table className="report-table">
               <caption>Назначения, условия и нерешённые заявки</caption>
               <thead>
@@ -180,7 +251,14 @@ export default function ReportView(props: ReportInput & { onOpenRequest: (id: st
                       <strong className={`report-status ${row.status}`}>
                         {reportStatus[row.status as keyof typeof reportStatus]}
                       </strong>
-                      {row.settledAt && <small>Переселено: {row.settledAt}</small>}
+                      {row.place && (
+                        <small>
+                          {row.settledAt ? `Переселено: ${row.settledAt}` : 'Ожидает переезда'}
+                        </small>
+                      )}
+                      {!row.place && row.settledAt && (
+                        <small>Есть подтверждение от {row.settledAt}, но адрес не назначен.</small>
+                      )}
                       {row.pinned && <small>🔒 Закреплено вручную</small>}
                       {row.comfort !== null && <small>Комфорт: {row.comfort}/100</small>}
                     </td>

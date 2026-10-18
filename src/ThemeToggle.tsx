@@ -1,38 +1,66 @@
-import { useEffect, useState } from 'react';
+import { useId, useLayoutEffect, useState } from 'react';
+import {
+  applyTheme,
+  readTheme,
+  systemThemeQuery,
+  themeStorageKey,
+  type ThemePreference,
+} from './theme';
 
-const storageKey = 'quiet-address-theme';
-type Theme = 'light' | 'dark';
-
-function initialTheme(): Theme {
-  try {
-    return localStorage.getItem(storageKey) === 'dark' ? 'dark' : 'light';
-  } catch {
-    return 'light';
-  }
-}
+const choices = [
+  { value: 'system', label: 'Системная', symbol: '◐' },
+  { value: 'light', label: 'Дневная', symbol: '☀' },
+  { value: 'dark', label: 'Ночная', symbol: '☾' },
+] as const;
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(initialTheme);
+  const id = useId();
+  const [preference, setPreference] = useState<ThemePreference>(readTheme);
+  const [resolved, setResolved] = useState<'light' | 'dark'>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  );
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+  useLayoutEffect(() => {
+    const query = systemThemeQuery();
+    const update = () => setResolved(applyTheme(preference, query?.matches ?? false));
+    update();
     try {
-      localStorage.setItem(storageKey, theme);
+      localStorage.setItem(themeStorageKey, preference);
     } catch {
       // A blocked preference store must not prevent switching the current theme.
     }
-  }, [theme]);
+    if (preference !== 'system' || !query) return;
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, [preference]);
 
   return (
-    <button
-      className="theme-toggle"
-      type="button"
-      aria-pressed={theme === 'dark'}
-      onClick={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
-      title={theme === 'light' ? 'Переключить на тёмную тему' : 'Переключить на светлую тему'}
-    >
-      <span aria-hidden="true">{theme === 'light' ? '☾' : '☀'}</span>
-      {theme === 'light' ? 'Ночная смена' : 'Дневной архив'}
-    </button>
+    <fieldset className="theme-picker" aria-describedby={`${id}-hint`}>
+      <legend>Оформление</legend>
+      <div className="theme-options">
+        {choices.map(({ value, label, symbol }) => (
+          <label className="theme-option" key={value}>
+            <input
+              type="radio"
+              name={`${id}-theme`}
+              value={value}
+              checked={preference === value}
+              onChange={() => setPreference(value)}
+            />
+            <span className="theme-option-face">
+              <span className="theme-symbol" aria-hidden="true">
+                {symbol}
+              </span>
+              {label}
+            </span>
+          </label>
+        ))}
+      </div>
+      <p id={`${id}-hint`} className="theme-hint">
+        {preference === 'system'
+          ? `Как на устройстве · ${resolved === 'dark' ? 'ночная' : 'дневная'}`
+          : 'Выбранное оформление'}
+      </p>
+    </fieldset>
   );
 }

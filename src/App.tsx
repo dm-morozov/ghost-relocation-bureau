@@ -10,16 +10,27 @@ import {
   type Assignments,
   type Place,
 } from './domain';
-import { demoGhosts } from './data';
-import { storageKey, type Session } from './storage';
-import { loadSession } from './backup';
+import { demoGhosts, places as demoPlaces } from './data';
+import { parseSession, storageKey, type Session } from './storage';
+import { loadSession, makeBackup, saveFile } from './backup';
+import { useStorageSync } from './useStorageSync';
+import StorageConflict from './StorageConflict';
+import CharacterStory from './CharacterStory';
 import SessionTools from './SessionTools';
 import ThemeToggle from './ThemeToggle';
 import ReportView from './ReportView';
 import ShiftGame from './ShiftGame';
 import ArtImage from './ArtImage';
+import AllocationPreview from './AllocationPreview';
+import {
+  createAllocationPlan,
+  isAllocationPlanCurrent,
+  type AllocationPlan,
+} from './allocation-plan';
+import IdealPlaceAction from './IdealPlaceAction';
 import './theme.css';
 import Worklog from './Worklog';
+import BrandLogo from './BrandLogo';
 import PlaceForm from './PlaceForm';
 import ComfortPanel from './ComfortPanel';
 import GhostForm from './GhostForm';
@@ -37,17 +48,38 @@ const dateLabel = (s: string) =>
   new Date(`${s}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 export default function App() {
   const [boot] = useState(loadSession);
+  const {
+    sync,
+    state: syncState,
+    blocked: syncBlocked,
+  } = useStorageSync<Session>({
+    key: storageKey,
+    baseline: boot.baseline,
+    // The existing recovery UI protects malformed boot data until a confirmed replacement.
+    parse: (raw) =>
+      raw === null
+        ? {
+            ghosts: demoGhosts(todayISO()),
+            places: structuredClone(demoPlaces),
+            assignments: {},
+            pinned: [],
+          }
+        : parseSession(raw),
+  });
   const [storageBlocked, setStorageBlocked] = useState(boot.blocked);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [scenarioPending, setScenarioPending] = useState<string | null>(null);
   const [undo, setUndo] = useState<Session | null>(null);
   const [allocating, setAllocating] = useState(false);
+  const [allocationPlan, setAllocationPlan] = useState<AllocationPlan | null>(null);
   const allocationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const allocationButton = useRef<HTMLButtonElement>(null);
   const sessionRef = useRef('');
   const [editingPlace, setEditingPlace] = useState<Place | null>(null);
   const [deletingPlace, setDeletingPlace] = useState<Place | null>(null);
   const [idealFor, setIdealFor] = useState<string | null>(null);
+  const [createdIdealPlace, setCreatedIdealPlace] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string[]>(boot.pinned ?? []);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -56,6 +88,10 @@ export default function App() {
   const [placeInitial, setPlaceInitial] = useState<Partial<Place>>();
   const [placeFormVersion, setPlaceFormVersion] = useState(0);
   const detailHeading = useRef<HTMLHeadingElement>(null);
+  const newRequestButton = useRef<HTMLButtonElement>(null);
+  const newPlaceButton = useRef<HTMLButtonElement>(null);
+  const requestButtons = useRef(new Map<string, HTMLButtonElement>());
+  const returnFocus = useRef<HTMLElement | null>(null);
   const pageHeading = useRef<HTMLHeadingElement>(null);
   const focusRequest = useRef(false);
   const [ghosts, setGhosts] = useState(boot.ghosts),
@@ -84,24 +120,42 @@ export default function App() {
     [],
   );
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty && !syncBlocked) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  }, [dirty, syncBlocked]);
   function mayLeave() {
     return (
-      !dirty ||
-      window.confirm('В заявке есть несохранённые изменения. Закрыть форму без сохранения?')
+      !dirty || window.confirm('В форме есть несохранённые изменения. Закрыть её без сохранения?')
     );
   }
   function changeTab(next: Tab) {
-    if (!mayLeave()) return;
+    if (!mayLeave()) return false;
     setDirty(false);
     setEditing(false);
+    setShowForm(false);
+    setShowPlaceForm(false);
     setTab(next);
+    return true;
+  }
+  function finishForm(focus: HTMLElement | null) {
+    setDirty(false);
+    returnFocus.current = focus;
+  }
+  useEffect(() => {
+    if (returnFocus.current) {
+      returnFocus.current.focus();
+      returnFocus.current = null;
+    }
+  });
+  function filterRequests(next: string) {
+    if (!changeTab('Заявки')) return;
+    setFilter(next);
+    setQuery('');
+    setMobileDetail(false);
   }
   function restoreSession(next: Session) {
     setUndo(structuredClone(currentSession));
@@ -113,12 +167,16 @@ export default function App() {
     setTarget(next.assignments[next.ghosts[0]?.id] ?? '');
     setEditing(false);
     setDirty(false);
+    setShowForm(false);
     setPending(null);
     setQuery('');
     setFilter('all');
     setShowPlaceForm(false);
     setEditingPlace(null);
     setDeletingPlace(null);
+    setIdealFor(null);
+    setCreatedIdealPlace(null);
+    setAllocationPlan(null);
     setMobileDetail(false);
     setMessage('Сессия восстановлена. Предыдущую версию можно вернуть кнопкой отмены.');
   }
@@ -138,15 +196,9 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    if (storageBlocked) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments, places, pinned }));
-    } catch {
-      setError(
-        'Не удалось сохранить изменения в браузере. Текущая работа доступна до закрытия страницы; скачайте резервную копию в блоке сохранения.',
-      );
-    }
-  }, [ghosts, assignments, places, pinned, storageBlocked]);
+    if (storageBlocked || syncBlocked) return;
+    sync.save(JSON.stringify({ ghosts, assignments, places, pinned }));
+  }, [ghosts, assignments, places, pinned, storageBlocked, syncBlocked, sync]);
   const ghost = ghosts.find((g) => g.id === selected);
   const assigned = ghosts.filter((g) => assignments[g.id]).length;
   const violations = (g: Ghost) => {
@@ -156,8 +208,12 @@ export default function App() {
   const occupied = (id: string) => Object.values(assignments).filter((p) => p === id).length;
   function createIdealPlace(g: Ghost) {
     if (!mayLeave()) return;
+    setDirty(false);
+    setEditing(false);
+    setShowForm(false);
     setEditingPlace(null);
     setIdealFor(g.id);
+    setCreatedIdealPlace(null);
     if (!availableLocations(places).length) {
       setTab('Места');
       setShowPlaceForm(false);
@@ -184,12 +240,14 @@ export default function App() {
     setTab('Места');
     setPending(null);
     setMessage(
-      `Параметры для ${g.name} заполнены. Проверьте их и нажмите «Добавить место». После сохранения повторите подбор.`,
+      `Параметры для ${g.name} заполнены. Проверьте их и сохраните дом, затем назначьте его заявке.`,
     );
   }
-  function select(id: string, external = false) {
-    if (!mayLeave()) return;
+  function select(id: string, external = false, saved = false) {
+    if (!saved && !mayLeave()) return false;
     setDirty(false);
+    setShowForm(false);
+    setShowPlaceForm(false);
     focusRequest.current = true;
     setMobileDetail(true);
     if (external) {
@@ -201,8 +259,11 @@ export default function App() {
     setSelected(id);
     setTarget(assignments[id] ?? '');
     setPending(null);
+    return true;
   }
   function scenario(value: string) {
+    setIdealFor(null);
+    setCreatedIdealPlace(null);
     setUndo(structuredClone(currentSession));
     setDirty(false);
     setScenarioPending(null);
@@ -220,7 +281,7 @@ export default function App() {
     setPinned([]);
     setGhosts(next);
     setAssignments(a);
-    select(next[0]?.id ?? '');
+    select(next[0]?.id ?? '', false, true);
     setTarget(a[next[0]?.id] ?? '');
     setQuery('');
     setFilter('all');
@@ -228,42 +289,41 @@ export default function App() {
     setMessage('Сценарий заявок загружен. Назначения заменены; добавленные места сохранены.');
   }
   function allocate() {
-    if (allocating || !mayLeave()) return;
+    if (allocating || allocationPlan || !mayLeave() || !sync.check()) return;
     setDirty(false);
     setEditing(false);
+    setShowForm(false);
+    setShowPlaceForm(false);
     setAllocating(true);
+    const day = todayISO();
     const snapshot = sessionRef.current;
     allocationTimer.current = setTimeout(() => {
+      allocationTimer.current = null;
       setAllocating(false);
-      if (sessionRef.current !== snapshot) {
+      if (sessionRef.current !== snapshot || todayISO() !== day || !sync.check()) {
         setMessage('Данные изменились во время сверки. Запустите подбор повторно.');
         return;
       }
-      const fixed = Object.fromEntries(
-        ghosts
-          .filter((g) => (pinned.includes(g.id) || g.settledAt) && assignments[g.id])
-          .map((g) => [g.id, assignments[g.id]]),
-      );
-      const result = relocation.allocate(ghosts, places, today, fixed);
-      setUndo(structuredClone(currentSession));
-      setAssignments(result);
-      setPending(null);
-      setTarget(selected ? (result[selected] ?? '') : '');
-      const changed = ghosts.filter((g) => result[g.id] !== assignments[g.id]).length;
-      const conflicts = ghosts.filter((g) => {
-        const place = places.find((p) => p.id === result[g.id]);
-        return place && relocation.conflicts(g, place, result, today).length;
-      }).length;
-      setMessage(
-        'Подбор завершён. Изменено: ' +
-          changed +
-          '. Сохранено закреплённых и завершённых: ' +
-          Object.keys(fixed).length +
-          '. Без места: ' +
-          (ghosts.length - Object.keys(result).length) +
-          (conflicts ? '. С конфликтами: ' + conflicts + '.' : '. Конфликтов нет.'),
-      );
+      setAllocationPlan(createAllocationPlan(currentSession, day));
     }, 350);
+  }
+  function applyPlan() {
+    if (!allocationPlan) return;
+    if (!sync.check()) return;
+    if (!isAllocationPlanCurrent(allocationPlan, currentSession, todayISO())) {
+      setAllocationPlan(null);
+      setMessage('Данные или дата изменились. Запустите подбор повторно.');
+      return;
+    }
+    setUndo(structuredClone(currentSession));
+    setAssignments(allocationPlan.assignments);
+    setPending(null);
+    setTarget(selected ? (allocationPlan.assignments[selected] ?? '') : '');
+    const c = allocationPlan.counts;
+    setMessage(
+      `Подбор завершён. Изменено: ${c.added + c.removed + c.moved}. Сохранено закреплённых и завершённых: ${c.fixed}. Без места: ${c.unassigned + c.removed}. С конфликтами: ${c.conflicts}.`,
+    );
+    setAllocationPlan(null);
   }
   function extendDeadline() {
     if (!ghost || ghost.settledAt) return;
@@ -330,7 +390,7 @@ export default function App() {
     };
     setUndo(structuredClone(currentSession));
     setGhosts((gs) => [...gs, g]);
-    select(g.id);
+    select(g.id, false, true);
     setTarget('');
     setShowForm(false);
     setMessage('Заявка добавлена. Запустите подбор или выберите место вручную.');
@@ -354,7 +414,11 @@ export default function App() {
     (g) =>
       g.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) &&
       (filter === 'all' ||
-        (filter === 'unassigned' ? !assignments[g.id] : violations(g).length > 0)),
+        (filter === 'unassigned'
+          ? !assignments[g.id]
+          : filter === 'assigned'
+            ? !!assignments[g.id]
+            : violations(g).length > 0)),
   );
   return (
     <div className="shell">
@@ -367,12 +431,7 @@ export default function App() {
             changeTab('Заявки');
           }}
         >
-          <span className="brand-mark" aria-hidden="true">
-            Б
-          </span>
-          <span>
-            Тихий адрес<small>Бюро переселения привидений</small>
-          </span>
+          <BrandLogo />
         </a>
         <ThemeToggle />
         <div className="side-label">Рабочее пространство</div>
@@ -403,6 +462,42 @@ export default function App() {
         </div>
       </aside>
       <main>
+        <StorageConflict
+          state={syncState}
+          subject="Сессия бюро"
+          onDownloadLocal={() => {
+            try {
+              saveFile(makeBackup(currentSession), 'quiet-address-local.json');
+            } catch {
+              setError(
+                'Не удалось скачать копию. Оставьте вкладку открытой и повторите загрузку файла.',
+              );
+            }
+          }}
+          onLoadFresh={() => {
+            if (!mayLeave()) return;
+            sync.loadFresh((next) => {
+              if (allocationTimer.current) clearTimeout(allocationTimer.current);
+              allocationTimer.current = null;
+              setAllocating(false);
+              restoreSession(next);
+              setUndo(null);
+              setScenarioPending(null);
+              setStorageBlocked(false);
+              setError('');
+              setMessage('Загружена актуальная сохранённая версия.');
+            });
+          }}
+        />
+        {allocationPlan && (
+          <AllocationPreview
+            plan={allocationPlan}
+            stale={syncBlocked || !isAllocationPlanCurrent(allocationPlan, currentSession, today)}
+            onApply={applyPlan}
+            returnFocusTo={allocationButton.current}
+            onCancel={() => setAllocationPlan(null)}
+          />
+        )}
         <header className="topbar">
           <span>Отдел заботы о потустороннем</span>
           <time dateTime={today}>
@@ -457,6 +552,7 @@ export default function App() {
           </div>
           {tab === 'Заявки' && (
             <button
+              ref={allocationButton}
               className={allocating ? 'primary allocation-busy' : 'primary'}
               onClick={allocate}
               disabled={!ghosts.length || allocating}
@@ -474,6 +570,25 @@ export default function App() {
             </button>
           )}
         </div>
+        {tab === 'Заявки' && (
+          <details className="quick-start">
+            <summary>Первый день в бюро · три простых шага</summary>
+            <ol>
+              <li>
+                <strong>Познакомьтесь с заявкой.</strong> Выберите привидение, проверьте срок и
+                особые условия.
+              </li>
+              <li>
+                <strong>Найдите тихий адрес.</strong> Запустите подбор или выберите место вручную.
+                Ручной выбор закрепляется замочком.
+              </li>
+              <li>
+                <strong>Проверьте переезд.</strong> Устраните конфликты, подтвердите переселение и
+                откройте отчёт.
+              </li>
+            </ol>
+          </details>
+        )}
         {tab !== 'Смена' && undo && (
           <div className="notice undo-notice">
             <span>Последнее действие можно отменить.</span>
@@ -493,36 +608,22 @@ export default function App() {
         {tab !== 'Смена' && (
           <section className="metrics" aria-label="Сводка">
             <div>
-              <button
-                className="metric-filter"
-                onClick={() => {
-                  changeTab('Заявки');
-                  setFilter('all');
-                  setQuery('');
-                  setMobileDetail(false);
-                }}
-              >
+              <button className="metric-filter" onClick={() => filterRequests('all')}>
                 <span>Всего заявок</span>
               </button>
               <strong>{ghosts.length.toString().padStart(2, '0')}</strong>
             </div>
             <div>
-              <span>Назначено</span>
+              <button className="metric-filter" onClick={() => filterRequests('assigned')}>
+                Назначено
+              </button>
               <strong>
                 {assigned.toString().padStart(2, '0')}
                 <small> / {ghosts.length}</small>
               </strong>
             </div>
             <div>
-              <button
-                className="metric-filter"
-                onClick={() => {
-                  changeTab('Заявки');
-                  setFilter('unassigned');
-                  setQuery('');
-                  setMobileDetail(false);
-                }}
-              >
+              <button className="metric-filter" onClick={() => filterRequests('unassigned')}>
                 Без места
               </button>
               <strong className={ghosts.length - assigned ? 'amber' : ''}>
@@ -530,15 +631,7 @@ export default function App() {
               </strong>
             </div>
             <div>
-              <button
-                className="metric-filter"
-                onClick={() => {
-                  changeTab('Заявки');
-                  setFilter('conflict');
-                  setQuery('');
-                  setMobileDetail(false);
-                }}
-              >
+              <button className="metric-filter" onClick={() => filterRequests('conflict')}>
                 С нарушениями
               </button>
               <strong className={ghosts.some((g) => violations(g).length) ? 'red' : ''}>
@@ -555,13 +648,16 @@ export default function App() {
             session={currentSession}
             blocked={storageBlocked}
             original={boot.original}
+            canReplace={() => sync.check()}
             onRestore={(next) => {
               if (mayLeave()) {
                 restoreSession(next);
                 setStorageBlocked(false);
+                setError('');
               }
             }}
             onResume={() => {
+              if (!sync.check()) return;
               setStorageBlocked(false);
               setError('');
             }}
@@ -573,15 +669,32 @@ export default function App() {
               <section className="requests">
                 <div className="section-heading">
                   <h2>Заявки на переселение</h2>
-                  <button className="secondary" onClick={() => setShowForm(!showForm)}>
+                  <button
+                    ref={newRequestButton}
+                    className="secondary"
+                    aria-expanded={showForm}
+                    onClick={() => {
+                      if (!mayLeave()) return;
+                      if (showForm) finishForm(newRequestButton.current);
+                      else setDirty(false);
+                      setEditing(false);
+                      setShowForm(!showForm);
+                    }}
+                  >
                     {showForm ? 'Закрыть форму' : '+ Новая заявка'}
                   </button>
                 </div>
                 {showForm && (
-                  <form className="new-form" onSubmit={addGhost}>
+                  <form
+                    className="new-form"
+                    aria-label="Новая заявка"
+                    onChange={() => setDirty(true)}
+                    onSubmit={addGhost}
+                  >
                     <label>
                       Имя
                       <input
+                        autoFocus
                         name="name"
                         required
                         maxLength={60}
@@ -673,6 +786,7 @@ export default function App() {
                   >
                     <option value="all">Все заявки</option>
                     <option value="unassigned">Без места</option>
+                    <option value="assigned">Назначено</option>
                     <option value="conflict">С нарушениями</option>
                   </select>
                 </div>
@@ -683,6 +797,10 @@ export default function App() {
                     return (
                       <button
                         key={g.id}
+                        ref={(node) => {
+                          if (node) requestButtons.current.set(g.id, node);
+                          else requestButtons.current.delete(g.id);
+                        }}
                         aria-pressed={selected === g.id}
                         className={`request request-${bad.length ? 'conflict' : p ? 'assigned' : 'unassigned'} ${selected === g.id ? 'selected' : ''}`}
                         onClick={() => select(g.id)}
@@ -745,6 +863,9 @@ export default function App() {
                       setMobileDetail(false);
                       setEditing(false);
                       setDirty(false);
+                      returnFocus.current = selected
+                        ? (requestButtons.current.get(selected) ?? newRequestButton.current)
+                        : newRequestButton.current;
                     }
                   }}
                 >
@@ -785,8 +906,9 @@ export default function App() {
                         aria-expanded={editing}
                         disabled={!!ghost.settledAt}
                         onClick={() => {
-                          if (editing && !mayLeave()) return;
+                          if (!mayLeave()) return;
                           setDirty(false);
+                          setShowForm(false);
                           setEditing(!editing);
                           setDeleting(false);
                           setPending(null);
@@ -801,8 +923,8 @@ export default function App() {
                           if (!mayLeave()) return;
                           setDirty(false);
                           setDeleting(!deleting);
-                          setUndo(structuredClone(currentSession));
                           setEditing(false);
+                          setShowForm(false);
                           setDirty(false);
                           setPending(null);
                         }}
@@ -816,9 +938,9 @@ export default function App() {
                         ghost={ghost}
                         onDirty={() => setDirty(true)}
                         onCancel={() => {
+                          if (!mayLeave()) return;
                           setEditing(false);
-                          setDirty(false);
-                          detailHeading.current?.focus();
+                          finishForm(detailHeading.current);
                         }}
                         onSave={(updated) => {
                           setUndo(structuredClone(currentSession));
@@ -827,6 +949,7 @@ export default function App() {
                             items.map((item) => (item.id === updated.id ? updated : item)),
                           );
                           setEditing(false);
+                          finishForm(detailHeading.current);
                           setPending(null);
                           setMessage(
                             'Заявка обновлена. Назначение и закрепление сохранены; проверьте предупреждения об условиях.',
@@ -853,7 +976,7 @@ export default function App() {
                     )}
                     {!editing && (
                       <>
-                        <p className="muted">В поисках места, которое можно назвать своим.</p>
+                        <CharacterStory ghost={ghost} />
                         {isUrgent(ghost, today) && (
                           <p className="urgent-badge">🔥 Срочно: срок сегодня или завтра</p>
                         )}
@@ -1092,19 +1215,14 @@ export default function App() {
                   </>
                 ) : (
                   <div className="empty">
-                    <h2>Выберите заявку</h2>
+                    <h2 ref={detailHeading} tabIndex={-1}>
+                      Выберите заявку
+                    </h2>
                     <p>Здесь появятся условия, объяснение и ручное назначение.</p>
                   </div>
                 )}
               </aside>
             </div>
-            <section className="quick-start">
-              <strong>Три шага к новому дому</strong>
-              <p>
-                1. Подберите адреса. 2. Откройте заявки без места или с конфликтами. 3. Подтвердите
-                переселение, когда условия подходят. Ручной выбор сохраняется замочком.
-              </p>
-            </section>
             {scenarioPending && (
               <section className="notice danger" aria-label="Подтверждение демосценария">
                 <strong>Заменить {ghosts.length} заявок и назначения?</strong>
@@ -1142,8 +1260,13 @@ export default function App() {
             <div className="section-heading places-heading">
               <h2>Места обитания · {places.length}</h2>
               <button
+                ref={newPlaceButton}
                 className="primary"
+                aria-expanded={showPlaceForm}
                 onClick={() => {
+                  if (!mayLeave()) return;
+                  if (showPlaceForm) finishForm(newPlaceButton.current);
+                  else setDirty(false);
                   if (!showPlaceForm) {
                     setEditingPlace(null);
                     setIdealFor(null);
@@ -1162,13 +1285,19 @@ export default function App() {
                 initialData={placeInitial}
                 editing={!!editingPlace}
                 existingPlaces={places}
-                onCancel={() => setShowPlaceForm(false)}
+                onDirty={() => setDirty(true)}
+                onCancel={() => {
+                  if (!mayLeave()) return;
+                  setShowPlaceForm(false);
+                  finishForm(newPlaceButton.current);
+                }}
                 onAdd={(p) => {
                   if (editingPlace) {
                     setUndo(structuredClone(currentSession));
                     setPlaces((items) => items.map((item) => (item.id === p.id ? p : item)));
                     setEditingPlace(null);
                     setShowPlaceForm(false);
+                    finishForm(newPlaceButton.current);
                     setMessage(
                       'Место обновлено. Совместимость жильцов пересчитана; проверьте конфликты.',
                     );
@@ -1188,38 +1317,53 @@ export default function App() {
                   }
                   setUndo(structuredClone(currentSession));
                   setPlaces((ps) => [...ps, p]);
+                  if (idealFor) setCreatedIdealPlace(p.id);
                   setShowPlaceForm(false);
+                  finishForm(newPlaceButton.current);
                   setMessage(
-                    'Место добавлено. Перейдите в заявки и повторите подбор, чтобы использовать новый адрес.',
+                    idealFor
+                      ? 'Дом сохранён. Проверьте условия и назначьте его заявке.'
+                      : 'Место добавлено. Перейдите в заявки и повторите подбор, чтобы использовать новый адрес.',
                   );
                 }}
               />
             )}
             {idealFor &&
+              createdIdealPlace &&
               ghosts.some((g) => g.id === idealFor) &&
               !showPlaceForm &&
-              places.some(
-                (p) =>
-                  !relocation.conflicts(
-                    ghosts.find((g) => g.id === idealFor)!,
-                    p,
-                    assignments,
-                    today,
-                  ).length,
-              ) && (
-                <div className="notice">
-                  <p>Адрес готов. Вернитесь к заявке, чтобы проверить и применить назначение.</p>
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      select(idealFor, true);
-                      setTab('Заявки');
-                      setIdealFor(null);
-                    }}
-                  >
-                    Вернуться к заявке
-                  </button>
-                </div>
+              places.some((p) => p.id === createdIdealPlace) && (
+                <IdealPlaceAction
+                  ghost={ghosts.find((g) => g.id === idealFor)!}
+                  place={places.find((p) => p.id === createdIdealPlace)!}
+                  assignments={assignments}
+                  today={today}
+                  onOpenRequest={(id) => {
+                    if (!select(id, true)) return;
+                    setTab('Заявки');
+                    setIdealFor(null);
+                    setCreatedIdealPlace(null);
+                  }}
+                  onAssign={(id, placeId) => {
+                    const currentGhost = ghosts.find((g) => g.id === id);
+                    const currentPlace = places.find((p) => p.id === placeId);
+                    if (
+                      !currentGhost ||
+                      !currentPlace ||
+                      currentGhost.settledAt ||
+                      relocation.conflicts(currentGhost, currentPlace, assignments, todayISO())
+                        .length ||
+                      !mayLeave()
+                    )
+                      return;
+                    apply(id, placeId);
+                    select(id, true, true);
+                    setTarget(placeId);
+                    setTab('Заявки');
+                    setIdealFor(null);
+                    setCreatedIdealPlace(null);
+                  }}
+                />
               )}
             {deletingPlace && (
               <section className="notice danger" aria-label="Подтверждение удаления места">
@@ -1231,6 +1375,8 @@ export default function App() {
                 <button
                   className="danger-button"
                   onClick={() => {
+                    if (!mayLeave()) return;
+                    finishForm(newPlaceButton.current);
                     const ids = ghosts
                       .filter((g) => assignments[g.id] === deletingPlace.id)
                       .map((g) => g.id);
@@ -1286,8 +1432,7 @@ export default function App() {
                                 <button
                                   className="resident"
                                   onClick={() => {
-                                    focusRequest.current = true;
-                                    select(g.id, true);
+                                    if (!select(g.id, true)) return;
                                     setTab('Заявки');
                                   }}
                                 >
@@ -1306,6 +1451,8 @@ export default function App() {
                       <button
                         className="secondary"
                         onClick={() => {
+                          if (!mayLeave()) return;
+                          setDirty(false);
                           setEditingPlace(p);
                           setPlaceInitial(p);
                           setPlaceFormVersion((v) => v + 1);
@@ -1377,7 +1524,7 @@ export default function App() {
             pinned={pinned}
             today={today}
             onOpenRequest={(id) => {
-              select(id, true);
+              if (!select(id, true)) return;
               setTab('Заявки');
             }}
           />

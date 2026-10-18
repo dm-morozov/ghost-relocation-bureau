@@ -1,0 +1,54 @@
+.character-story {
+  clear: both;
+  margin-block: 14px;
+  padding: 10px 12px;
+  border-left: 3px solid #708360;
+  border-radius: 0 7px 7px 0;
+  background: #eef0e5;
+  color: #354b3d;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.character-story blockquote {
+  margin: 0;
+  font:
+    italic 15px/1.55 Georgia,
+    serif;
+}
+.character-story details {
+  margin-top: 8px;
+}
+.character-story summary {
+  width: fit-content;
+  max-width: 100%;
+  padding-block: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.character-story summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.character-story summary:focus-visible {
+  outline: 3px solid #986314;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.character-story .character-story-name {
+  font-weight: 400;
+}
+.character-story details p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+:root[data-theme='dark'] .character-story {
+  background: #20372b;
+  border-color: #a5be8f;
+  color: #e1ead6;
+}
+:root[data-theme='dark'] .character-story summary:focus-visible {
+  outline-color: #f3cd80;
+}

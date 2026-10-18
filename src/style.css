@@ -1404,6 +1404,16 @@ legend {
   cursor: pointer;
   font-weight: 650;
 }
+.quick-start summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.quick-start ol {
+  display: grid;
+  gap: 10px;
+  padding-left: 22px;
+  margin-bottom: 0;
+}
 .session-tools .form-actions {
   margin: 12px 0;
 }

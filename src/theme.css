@@ -2,6 +2,9 @@
 :root {
   color-scheme: light;
 }
+:root:not([data-theme='dark']) :is(input, select, textarea) {
+  border-color: #738578;
+}
 :root:not([data-theme='dark'])
   :is(
     .muted,
@@ -23,24 +26,78 @@
   ) {
   color: #56634f;
 }
-.theme-toggle {
+.sidebar .theme-picker {
+  display: block;
+  min-width: 0;
+  margin: 25px 0 0;
+  padding: 0;
+  border: 0;
+}
+.theme-picker legend {
+  margin-bottom: 9px;
+  padding: 0;
+  color: #c0d0c4;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid #547365;
+  border-radius: 10px;
+  background: #102d25;
+}
+.theme-option {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+.theme-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+}
+.theme-option-face {
   display: flex;
+  min-height: 54px;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  min-height: 44px;
-  margin-top: 24px;
-  border-color: #8ca998;
-  background: #214b3f;
-  color: #f2f6eb;
-  font-size: 13px;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #c3d3c7;
+  font-size: 10px;
+  line-height: 1.2;
 }
-.theme-toggle:hover {
-  background: #32634f;
-}
-.theme-toggle span {
-  font-size: 20px;
+.theme-symbol {
+  font-size: 18px;
   line-height: 1;
+}
+.theme-option:hover .theme-option-face {
+  background: #264b3c;
+  color: #fff;
+}
+.theme-option input:checked + .theme-option-face {
+  background: #dce6c9;
+  border-color: #e8efd8;
+  color: #203e30;
+  box-shadow: 0 2px 5px #061a1640;
+}
+.theme-option input:focus-visible + .theme-option-face {
+  outline: 3px solid #f3cd80;
+  outline-offset: 2px;
+}
+.theme-picker .theme-hint {
+  margin: 9px 0 0;
+  color: #b5c9bb;
+  font-size: 10px;
+  line-height: 1.5;
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -125,10 +182,6 @@
 :root[data-theme='dark'] :is(.nav.active, .nav:hover) {
   background: #2a493b;
   color: #f2f6ec;
-}
-:root[data-theme='dark'] .theme-toggle {
-  background: #203c30;
-  color: #eaf2df;
 }
 :root[data-theme='dark'] .request {
   background: transparent;
@@ -355,7 +408,7 @@
   }
 }
 @media (max-width: 700px) {
-  .theme-toggle {
+  .sidebar .theme-picker {
     margin-top: 14px;
     width: 100%;
   }
