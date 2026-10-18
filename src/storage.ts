@@ -21,6 +21,7 @@ export function parseSession(raw: string): Session {
       !p ||
       typeof p.id !== 'string' ||
       !p.id ||
+      ['__proto__', 'constructor', 'prototype'].includes(p.id) ||
       placeIds.has(p.id) ||
       typeof p.name !== 'string' ||
       !p.name.trim() ||
@@ -57,6 +58,7 @@ export function parseSession(raw: string): Session {
       !g ||
       typeof g.id !== 'string' ||
       !g.id ||
+      ['__proto__', 'constructor', 'prototype'].includes(g.id) ||
       (g.portrait !== undefined &&
         (!Number.isInteger(g.portrait) || g.portrait < 0 || g.portrait > 9)) ||
       ids.has(g.id) ||
@@ -73,6 +75,12 @@ export function parseSession(raw: string): Session {
       !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline) ||
       !Number.isFinite(Date.parse(g.deadline)) ||
       new Date(`${g.deadline}T00:00:00Z`).toISOString().slice(0, 10) !== g.deadline ||
+      (g.settledAt !== undefined &&
+        (typeof g.settledAt !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(g.settledAt) ||
+          !Number.isFinite(Date.parse(g.settledAt)) ||
+          new Date(g.settledAt + 'T00:00:00Z').toISOString().slice(0, 10) !== g.settledAt ||
+          !Object.hasOwn(s.assignments, g.id))) ||
       !Array.isArray(g.conditions) ||
       g.conditions.some((c) => !Object.hasOwn(conditionLabels, c))
     )
@@ -91,5 +99,10 @@ export function parseSession(raw: string): Session {
       ))
   )
     throw new Error('Повреждённые закрепления');
-  return { ...s, places };
+  return {
+    ghosts: s.ghosts,
+    assignments: s.assignments,
+    ...(s.pinned !== undefined ? { pinned: s.pinned } : {}),
+    places,
+  };
 }

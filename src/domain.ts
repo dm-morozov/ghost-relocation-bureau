@@ -9,6 +9,7 @@ export const conditionLabels: Record<Condition, string> = {
 };
 export interface Ghost {
   portrait?: number;
+  settledAt?: string;
   id: string;
   name: string;
   anxiety: number;
@@ -66,13 +67,22 @@ export function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+export function addDays(date: string, days: number): string {
+  const value = new Date(date + 'T12:00:00Z');
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+export function isUrgent(ghost: Ghost, today: string): boolean {
+  return !ghost.settledAt && ghost.deadline >= today && ghost.deadline <= addDays(today, 1);
+}
 export class RelocationService {
   constructor(
     private readonly rules: readonly SuitabilityRule[] = [new ConditionsRule(), new AnxietyRule()],
   ) {}
   evaluate(g: Ghost, p: Place, today: string): Evaluation {
     const conflicts = this.rules.flatMap((rule) => rule.check(g, p));
-    if (g.deadline < today) conflicts.push('Дедлайн просрочен: продлите срок перед переселением');
+    if (g.deadline < today && !(g.settledAt && g.settledAt <= g.deadline))
+      conflicts.push('Дедлайн просрочен: продлите срок перед переселением');
     const temperaturePenalty = Math.min(60, Math.abs(g.temperature - p.temperature) * 4);
     const noisePenalty = Math.round((p.noise * g.anxiety) / 25);
     const score = Math.max(0, 100 - temperaturePenalty - noisePenalty);

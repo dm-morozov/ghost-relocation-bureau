@@ -1,13 +1,19 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { conditionLabels, type Condition, type Ghost } from './domain';
+import ArtImage from './ArtImage';
 import { assetUrl, ghostPortraits, portraitUrl } from './assets';
 
 interface Props {
   ghost: Ghost;
   onSave: (ghost: Ghost) => void;
   onCancel: () => void;
+  onDirty?: () => void;
 }
-export default function GhostForm({ ghost, onSave, onCancel }: Props) {
+export default function GhostForm({ ghost, onSave, onCancel, onDirty }: Props) {
+  const firstInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    firstInput.current?.focus();
+  }, []);
   const [error, setError] = useState('');
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -28,7 +34,12 @@ export default function GhostForm({ ghost, onSave, onCancel }: Props) {
     });
   }
   return (
-    <form className="new-form edit-request" aria-label="Редактирование заявки" onSubmit={save}>
+    <form
+      className="new-form edit-request"
+      aria-label="Редактирование заявки"
+      onChange={onDirty}
+      onSubmit={save}
+    >
       <h3>Параметры заявки</h3>
       <p>Текущий адрес сохранится. После изменения условий проверьте его совместимость.</p>
       {error && (
@@ -38,7 +49,7 @@ export default function GhostForm({ ghost, onSave, onCancel }: Props) {
       )}
       <label>
         Имя
-        <input name="name" defaultValue={ghost.name} maxLength={60} required />
+        <input ref={firstInput} name="name" defaultValue={ghost.name} maxLength={60} required />
       </label>
       <div className="form-grid">
         <label>
@@ -100,7 +111,13 @@ export default function GhostForm({ ghost, onSave, onCancel }: Props) {
                 value={index}
                 defaultChecked={assetUrl(image) === portraitUrl(ghost)}
               />
-              <img src={assetUrl(image)} alt={`Привидение ${index + 1}`} />
+              <ArtImage
+                src={assetUrl(image)}
+                alt={`Привидение ${index + 1}`}
+                width={96}
+                height={96}
+                loading="lazy"
+              />
             </label>
           ))}
         </div>

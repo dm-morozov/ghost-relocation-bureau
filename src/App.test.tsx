@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseSession, storageKey } from './storage';
@@ -26,6 +26,11 @@ describe('оператор создаёт новые записи', () => {
     expect(screen.getAllByText('Пока никто не заселен')).toHaveLength(6);
     await user.click(screen.getByRole('button', { name: /01.*Заявки/ }));
     await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
+      ).toBe('false'),
+    );
     expect(
       screen.queryByRole('button', { name: '🪄 Создать идеальное место для Эдгар Безадресный' }),
     ).toBeNull();
@@ -63,6 +68,11 @@ describe('оператор создаёт новые записи', () => {
     expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /01.*Заявки/ }));
     await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
+      ).toBe('false'),
+    );
     await user.click(screen.getByRole('button', { name: /Эдгар Безадресный/ }));
     expect(screen.getByRole('heading', { name: 'Оранжерея туманов' })).toBeTruthy();
     const saved = parseSession(localStorage.getItem(storageKey)!);
@@ -99,6 +109,11 @@ describe('оператор управляет своей заявкой', () => 
       screen.getByRole('button', { name: '🔒 Закреплено вручную' }).getAttribute('aria-pressed'),
     ).toBe('true');
     await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
+      ).toBe('false'),
+    );
     let saved = parseSession(localStorage.getItem(storageKey)!);
     expect(saved.assignments.g1).toBe('castle');
     expect(saved.pinned).toEqual(['g1']);
@@ -128,6 +143,11 @@ describe('оператор управляет своей заявкой', () => 
     expect(screen.getByRole('heading', { name: 'Анна Обновлённая' })).toBeTruthy();
     expect(within(screen.getByLabelText('Карточка заявки')).getByText('Конфликт')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Подобрать места' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Подобрать места' }).getAttribute('aria-busy'),
+      ).toBe('false'),
+    );
     const saved = parseSession(localStorage.getItem(storageKey)!);
     expect(saved.ghosts[0].anxiety).toBe(10);
     expect(saved.assignments.g1).toBe('castle');

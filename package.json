@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "npm run check:assets && tsc -b && vite build",
-    "check:assets": "node scripts/check-assets.mjs",
+    "check:assets": "node scripts/check-assets.mjs && node scripts/check-optimized-images.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",

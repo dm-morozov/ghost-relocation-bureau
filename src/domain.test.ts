@@ -178,3 +178,21 @@ describe('закреплённые назначения', () => {
     expect(() => parseSession(JSON.stringify({ ...session, assignments: {} }))).toThrow();
   });
 });
+
+describe('даты и завершённый переезд', () => {
+  it('выполненный вовремя дедлайн не превращается в просрочку задним числом', () => {
+    expect(
+      relocation.evaluate({ ...ghost, settledAt: today }, place, '2027-01-01').conflicts,
+    ).toEqual([]);
+    expect(
+      relocation.evaluate({ ...ghost, settledAt: '2026-10-17' }, place, '2027-01-01').conflicts,
+    ).toContain('Дедлайн просрочен: продлите срок перед переселением');
+    expect(
+      relocation.evaluate(
+        { ...ghost, settledAt: today, conditions: ['noMirrors'] },
+        { ...place, mirrors: true },
+        '2027-01-01',
+      ).conflicts,
+    ).toHaveLength(1);
+  });
+});

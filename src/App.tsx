@@ -3,13 +3,22 @@ import {
   conditionLabels,
   relocation,
   todayISO,
+  addDays,
+  isUrgent,
   type Ghost,
   type Condition,
   type Assignments,
   type Place,
 } from './domain';
-import { demoGhosts, places as demoPlaces } from './data';
-import { parseSession, storageKey, type Session } from './storage';
+import { demoGhosts } from './data';
+import { storageKey, type Session } from './storage';
+import { loadSession } from './backup';
+import SessionTools from './SessionTools';
+import ThemeToggle from './ThemeToggle';
+import ReportView from './ReportView';
+import ShiftGame from './ShiftGame';
+import ArtImage from './ArtImage';
+import './theme.css';
 import Worklog from './Worklog';
 import PlaceForm from './PlaceForm';
 import ComfortPanel from './ComfortPanel';
@@ -23,30 +32,22 @@ import {
   placeImageKey,
 } from './assets';
 
-type Tab = 'Заявки' | 'Места' | 'Отчёт' | 'AI Worklog';
-function initial(): Session & { error: string } {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    return {
-      ...(raw
-        ? parseSession(raw)
-        : { ghosts: demoGhosts(todayISO()), assignments: {}, places: structuredClone(demoPlaces) }),
-      error: '',
-    };
-  } catch {
-    return {
-      ghosts: demoGhosts(todayISO()),
-      assignments: {},
-      places: structuredClone(demoPlaces),
-      error:
-        'Сохранённая сессия недоступна или повреждена. Загружены демоданные; проверьте их перед подбором.',
-    };
-  }
-}
+type Tab = 'Заявки' | 'Места' | 'Отчёт' | 'AI Worklog' | 'Смена';
 const dateLabel = (s: string) =>
   new Date(`${s}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 export default function App() {
-  const [boot] = useState(initial);
+  const [boot] = useState(loadSession);
+  const [storageBlocked, setStorageBlocked] = useState(boot.blocked);
+  const [mobileDetail, setMobileDetail] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [scenarioPending, setScenarioPending] = useState<string | null>(null);
+  const [undo, setUndo] = useState<Session | null>(null);
+  const [allocating, setAllocating] = useState(false);
+  const allocationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionRef = useRef('');
+  const [editingPlace, setEditingPlace] = useState<Place | null>(null);
+  const [deletingPlace, setDeletingPlace] = useState<Place | null>(null);
+  const [idealFor, setIdealFor] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string[]>(boot.pinned ?? []);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -55,6 +56,7 @@ export default function App() {
   const [placeInitial, setPlaceInitial] = useState<Partial<Place>>();
   const [placeFormVersion, setPlaceFormVersion] = useState(0);
   const detailHeading = useRef<HTMLHeadingElement>(null);
+  const pageHeading = useRef<HTMLHeadingElement>(null);
   const focusRequest = useRef(false);
   const [ghosts, setGhosts] = useState(boot.ghosts),
     [assignments, setAssignments] = useState<Assignments>(boot.assignments);
@@ -72,35 +74,98 @@ export default function App() {
       conflicts: string[];
     } | null>(null);
   const [today, setToday] = useState(todayISO());
+  const previousTab = useRef(tab);
+  const currentSession: Session = { ghosts, assignments, places, pinned };
+  sessionRef.current = JSON.stringify(currentSession);
+  useEffect(
+    () => () => {
+      if (allocationTimer.current) clearTimeout(allocationTimer.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  function mayLeave() {
+    return (
+      !dirty ||
+      window.confirm('В заявке есть несохранённые изменения. Закрыть форму без сохранения?')
+    );
+  }
+  function changeTab(next: Tab) {
+    if (!mayLeave()) return;
+    setDirty(false);
+    setEditing(false);
+    setTab(next);
+  }
+  function restoreSession(next: Session) {
+    setUndo(structuredClone(currentSession));
+    setGhosts(next.ghosts);
+    setPlaces(next.places);
+    setAssignments(next.assignments);
+    setPinned(next.pinned ?? []);
+    setSelected(next.ghosts[0]?.id ?? null);
+    setTarget(next.assignments[next.ghosts[0]?.id] ?? '');
+    setEditing(false);
+    setDirty(false);
+    setPending(null);
+    setQuery('');
+    setFilter('all');
+    setShowPlaceForm(false);
+    setEditingPlace(null);
+    setDeletingPlace(null);
+    setMobileDetail(false);
+    setMessage('Сессия восстановлена. Предыдущую версию можно вернуть кнопкой отмены.');
+  }
   useEffect(() => {
     if (tab === 'Заявки' && focusRequest.current) {
       focusRequest.current = false;
       detailHeading.current?.focus();
+      detailHeading.current?.scrollIntoView?.({ block: 'nearest' });
+    } else if (previousTab.current !== tab) {
+      pageHeading.current?.focus();
+      pageHeading.current?.scrollIntoView?.({ block: 'start' });
     }
-  }, [tab, selected]);
+    previousTab.current = tab;
+  }, [tab, selected, mobileDetail]);
   useEffect(() => {
     const id = window.setInterval(() => setToday(todayISO()), 30_000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
+    if (storageBlocked) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify({ ghosts, assignments, places, pinned }));
     } catch {
       setError(
-        'Не удалось сохранить изменения в браузере. Текущая работа доступна до закрытия страницы; скачайте отчёт.',
+        'Не удалось сохранить изменения в браузере. Текущая работа доступна до закрытия страницы; скачайте резервную копию в блоке сохранения.',
       );
     }
-  }, [ghosts, assignments, places, pinned]);
+  }, [ghosts, assignments, places, pinned, storageBlocked]);
   const ghost = ghosts.find((g) => g.id === selected);
   const assigned = ghosts.filter((g) => assignments[g.id]).length;
   const violations = (g: Ghost) => {
     const p = places.find((p) => p.id === assignments[g.id]);
     return p ? relocation.conflicts(g, p, assignments, today) : [];
   };
-  const problemGhosts = ghosts.filter((g) => !assignments[g.id] || violations(g).length);
   const occupied = (id: string) => Object.values(assignments).filter((p) => p === id).length;
-  const overloaded = places.filter((p) => occupied(p.id) > p.capacity);
   function createIdealPlace(g: Ghost) {
+    if (!mayLeave()) return;
+    setEditingPlace(null);
+    setIdealFor(g.id);
+    if (!availableLocations(places).length) {
+      setTab('Места');
+      setShowPlaceForm(false);
+      setMessage(
+        'Все локации добавлены. Откройте «Изменить место» у существующего адреса и настройте условия.',
+      );
+      return;
+    }
     setPlaceInitial({
       description: `Место с условиями для ${g.name}`,
       capacity: 1,
@@ -122,7 +187,15 @@ export default function App() {
       `Параметры для ${g.name} заполнены. Проверьте их и нажмите «Добавить место». После сохранения повторите подбор.`,
     );
   }
-  function select(id: string) {
+  function select(id: string, external = false) {
+    if (!mayLeave()) return;
+    setDirty(false);
+    focusRequest.current = true;
+    setMobileDetail(true);
+    if (external) {
+      setQuery('');
+      setFilter('all');
+    }
     setEditing(false);
     setDeleting(false);
     setSelected(id);
@@ -130,10 +203,20 @@ export default function App() {
     setPending(null);
   }
   function scenario(value: string) {
+    setUndo(structuredClone(currentSession));
+    setDirty(false);
+    setScenarioPending(null);
     const next = value === 'empty' ? [] : demoGhosts(today);
     let a: Assignments = {};
-    if (value === 'full') a = { g1: 'castle', g2: 'castle' };
-    if (value === 'conflict') a = { g1: 'theatre' };
+    if (value === 'full' && places[0]) a = { g1: places[0].id, g2: places[0].id };
+    if (value === 'full' && places[0] && places[0].capacity > 1) {
+      a = Object.fromEntries(
+        next
+          .slice(0, Math.min(next.length, places[0].capacity + 1))
+          .map((g) => [g.id, places[0].id]),
+      );
+    }
+    if (value === 'conflict' && places.some((p) => p.id === 'theatre')) a = { g1: 'theatre' };
     setPinned([]);
     setGhosts(next);
     setAssignments(a);
@@ -145,18 +228,62 @@ export default function App() {
     setMessage('Сценарий заявок загружен. Назначения заменены; добавленные места сохранены.');
   }
   function allocate() {
-    const fixed = Object.fromEntries(
-      pinned.filter((id) => assignments[id]).map((id) => [id, assignments[id]]),
+    if (allocating || !mayLeave()) return;
+    setDirty(false);
+    setEditing(false);
+    setAllocating(true);
+    const snapshot = sessionRef.current;
+    allocationTimer.current = setTimeout(() => {
+      setAllocating(false);
+      if (sessionRef.current !== snapshot) {
+        setMessage('Данные изменились во время сверки. Запустите подбор повторно.');
+        return;
+      }
+      const fixed = Object.fromEntries(
+        ghosts
+          .filter((g) => (pinned.includes(g.id) || g.settledAt) && assignments[g.id])
+          .map((g) => [g.id, assignments[g.id]]),
+      );
+      const result = relocation.allocate(ghosts, places, today, fixed);
+      setUndo(structuredClone(currentSession));
+      setAssignments(result);
+      setPending(null);
+      setTarget(selected ? (result[selected] ?? '') : '');
+      const changed = ghosts.filter((g) => result[g.id] !== assignments[g.id]).length;
+      const conflicts = ghosts.filter((g) => {
+        const place = places.find((p) => p.id === result[g.id]);
+        return place && relocation.conflicts(g, place, result, today).length;
+      }).length;
+      setMessage(
+        'Подбор завершён. Изменено: ' +
+          changed +
+          '. Сохранено закреплённых и завершённых: ' +
+          Object.keys(fixed).length +
+          '. Без места: ' +
+          (ghosts.length - Object.keys(result).length) +
+          (conflicts ? '. С конфликтами: ' + conflicts + '.' : '. Конфликтов нет.'),
+      );
+    }, 350);
+  }
+  function extendDeadline() {
+    if (!ghost || ghost.settledAt) return;
+    setUndo(structuredClone(currentSession));
+    setGhosts((items) =>
+      items.map((g) => (g.id === ghost.id ? { ...g, deadline: addDays(g.deadline, 7) } : g)),
     );
-    const result = relocation.allocate(ghosts, places, today, fixed);
-    setAssignments(result);
     setPending(null);
-    setTarget(selected ? (result[selected] ?? '') : '');
-    setMessage(
-      `Подбор завершён. Сохранено закреплённых назначений: ${Object.keys(fixed).length}. Остальные заявки распределены по свободным местам. Конфликты закреплённых решений требуют проверки оператора.`,
-    );
+    setMessage('Дедлайн продлён на 7 календарных дней от прежнего срока.');
+  }
+  function settle() {
+    if (!ghost) return;
+    const place = places.find((p) => p.id === assignments[ghost.id]);
+    if (!place || relocation.conflicts(ghost, place, assignments, today).length) return;
+    setUndo(structuredClone(currentSession));
+    setGhosts((items) => items.map((g) => (g.id === ghost.id ? { ...g, settledAt: today } : g)));
+    setMessage('Переселение подтверждено. Этот адрес сохраняется при подборе; дедлайн выполнен.');
   }
   function apply(id: string, placeId: string) {
+    setUndo(structuredClone(currentSession));
     setPinned((ids) =>
       placeId ? [...ids.filter((value) => value !== id), id] : ids.filter((value) => value !== id),
     );
@@ -201,6 +328,7 @@ export default function App() {
       conditions: data.getAll('conditions') as Condition[],
       portrait: Number(data.get('portrait')),
     };
+    setUndo(structuredClone(currentSession));
     setGhosts((gs) => [...gs, g]);
     select(g.id);
     setTarget('');
@@ -209,6 +337,7 @@ export default function App() {
   }
   function deleteGhost() {
     if (!ghost) return;
+    setUndo(structuredClone(currentSession));
     const remaining = ghosts.filter((g) => g.id !== ghost.id);
     setGhosts(remaining);
     setAssignments((current) => {
@@ -220,37 +349,6 @@ export default function App() {
     select(remaining[0]?.id ?? '');
     setTarget(remaining[0] ? (assignments[remaining[0].id] ?? '') : '');
     setMessage('Заявка «' + ghost.name + '» удалена. Занятое ею место освобождено.');
-  }
-  function download() {
-    const rows = ghosts.map((g) => ({
-      имя: g.name,
-      закреплено: pinned.includes(g.id),
-      место: places.find((p) => p.id === assignments[g.id])?.name ?? null,
-      предупреждения: violations(g),
-    }));
-    const url = URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify(
-            {
-              date: today,
-              assigned,
-              unassigned: ghosts.length - assigned,
-              overloaded: overloaded.map((p) => p.name),
-              requests: rows,
-            },
-            null,
-            2,
-          ),
-        ],
-        { type: 'application/json;charset=utf-8' },
-      ),
-    );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `relocation-${today}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const visible = ghosts.filter(
     (g) =>
@@ -266,7 +364,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setTab('Заявки');
+            changeTab('Заявки');
           }}
         >
           <span className="brand-mark" aria-hidden="true">
@@ -276,10 +374,16 @@ export default function App() {
             Тихий адрес<small>Бюро переселения привидений</small>
           </span>
         </a>
+        <ThemeToggle />
         <div className="side-label">Рабочее пространство</div>
         <nav aria-label="Основная навигация">
-          {(['Заявки', 'Места', 'Отчёт', 'AI Worklog'] as Tab[]).map((t, i) => (
-            <button key={t} className={tab === t ? 'nav active' : 'nav'} onClick={() => setTab(t)}>
+          {(['Заявки', 'Места', 'Отчёт', 'AI Worklog', 'Смена'] as Tab[]).map((t, i) => (
+            <button
+              key={t}
+              aria-current={tab === t ? 'page' : undefined}
+              className={tab === t ? 'nav active' : 'nav'}
+              onClick={() => changeTab(t)}
+            >
               <span className="nav-number">0{i + 1}</span>
               {t}
               {t === 'Заявки' && <span className="count">{ghosts.length}</span>}
@@ -317,7 +421,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {message && (
+        {tab !== 'Смена' && message && (
           <div role="status" className="notice">
             {message}
             <button className="text-button" onClick={() => setMessage('')}>
@@ -328,14 +432,16 @@ export default function App() {
         <div className="page-heading">
           <div>
             <p className="eyebrow">Никто не должен остаться без своего угла</p>
-            <h1>
+            <h1 ref={pageHeading} tabIndex={-1}>
               {tab === 'Заявки'
                 ? 'Каждому духу — свой дом.'
                 : tab === 'Места'
                   ? 'Адреса с характером.'
                   : tab === 'Отчёт'
                     ? 'Итоги переселения.'
-                    : 'Как создавалось бюро.'}
+                    : tab === 'Смена'
+                      ? 'Три смены до рассвета.'
+                      : 'Как создавалось бюро.'}
             </h1>
             <p className="subtitle">
               {tab === 'Заявки'
@@ -344,46 +450,126 @@ export default function App() {
                   ? 'Добавляйте адреса и проверяйте их условия перед назначением.'
                   : tab === 'Отчёт'
                     ? 'Назначение с нарушениями ещё требует решения оператора.'
-                    : 'Честный журнал участия автора и AI.'}
+                    : tab === 'Смена'
+                      ? 'Пошаговая история: решения, улучшения и новые жильцы.'
+                      : 'Честный журнал участия автора и AI.'}
             </p>
           </div>
           {tab === 'Заявки' && (
-            <button className="primary" onClick={allocate} disabled={!ghosts.length}>
-              Подобрать места <span aria-hidden="true">↗</span>
+            <button
+              className={allocating ? 'primary allocation-busy' : 'primary'}
+              onClick={allocate}
+              disabled={!ghosts.length || allocating}
+              aria-busy={allocating}
+            >
+              {allocating ? (
+                <>
+                  Сверка условий и аур… <span className="allocation-spinner" aria-hidden="true" />
+                </>
+              ) : (
+                <>
+                  Подобрать места <span aria-hidden="true">↗</span>
+                </>
+              )}
             </button>
           )}
         </div>
-        <section className="metrics" aria-label="Сводка">
-          <div>
-            <span>Всего заявок</span>
-            <strong>{ghosts.length.toString().padStart(2, '0')}</strong>
+        {tab !== 'Смена' && undo && (
+          <div className="notice undo-notice">
+            <span>Последнее действие можно отменить.</span>
+            <button
+              onClick={() => {
+                if (!mayLeave()) return;
+                const previous = undo;
+                restoreSession(previous);
+                setUndo(null);
+                setMessage('Последнее действие отменено.');
+              }}
+            >
+              Отменить последнее действие
+            </button>
           </div>
-          <div>
-            <span>Назначено</span>
-            <strong>
-              {assigned.toString().padStart(2, '0')}
-              <small> / {ghosts.length}</small>
-            </strong>
-          </div>
-          <div>
-            <span>Без места</span>
-            <strong className={ghosts.length - assigned ? 'amber' : ''}>
-              {(ghosts.length - assigned).toString().padStart(2, '0')}
-            </strong>
-          </div>
-          <div>
-            <span>С нарушениями</span>
-            <strong className={ghosts.some((g) => violations(g).length) ? 'red' : ''}>
-              {ghosts
-                .filter((g) => violations(g).length)
-                .length.toString()
-                .padStart(2, '0')}
-            </strong>
-          </div>
-        </section>
+        )}
+        {tab !== 'Смена' && (
+          <section className="metrics" aria-label="Сводка">
+            <div>
+              <button
+                className="metric-filter"
+                onClick={() => {
+                  changeTab('Заявки');
+                  setFilter('all');
+                  setQuery('');
+                  setMobileDetail(false);
+                }}
+              >
+                <span>Всего заявок</span>
+              </button>
+              <strong>{ghosts.length.toString().padStart(2, '0')}</strong>
+            </div>
+            <div>
+              <span>Назначено</span>
+              <strong>
+                {assigned.toString().padStart(2, '0')}
+                <small> / {ghosts.length}</small>
+              </strong>
+            </div>
+            <div>
+              <button
+                className="metric-filter"
+                onClick={() => {
+                  changeTab('Заявки');
+                  setFilter('unassigned');
+                  setQuery('');
+                  setMobileDetail(false);
+                }}
+              >
+                Без места
+              </button>
+              <strong className={ghosts.length - assigned ? 'amber' : ''}>
+                {(ghosts.length - assigned).toString().padStart(2, '0')}
+              </strong>
+            </div>
+            <div>
+              <button
+                className="metric-filter"
+                onClick={() => {
+                  changeTab('Заявки');
+                  setFilter('conflict');
+                  setQuery('');
+                  setMobileDetail(false);
+                }}
+              >
+                С нарушениями
+              </button>
+              <strong className={ghosts.some((g) => violations(g).length) ? 'red' : ''}>
+                {ghosts
+                  .filter((g) => violations(g).length)
+                  .length.toString()
+                  .padStart(2, '0')}
+              </strong>
+            </div>
+          </section>
+        )}
+        {tab !== 'Смена' && (
+          <SessionTools
+            session={currentSession}
+            blocked={storageBlocked}
+            original={boot.original}
+            onRestore={(next) => {
+              if (mayLeave()) {
+                restoreSession(next);
+                setStorageBlocked(false);
+              }
+            }}
+            onResume={() => {
+              setStorageBlocked(false);
+              setError('');
+            }}
+          />
+        )}
         {tab === 'Заявки' && (
           <>
-            <div className="workspace">
+            <div className={`workspace ${mobileDetail ? 'mobile-detail' : ''}`} inert={allocating}>
               <section className="requests">
                 <div className="section-heading">
                   <h2>Заявки на переселение</h2>
@@ -457,7 +643,13 @@ export default function App() {
                               value={index}
                               defaultChecked={index === ghosts.length % 10}
                             />
-                            <img src={assetUrl(image)} alt={`Привидение ${index + 1}`} />
+                            <ArtImage
+                              src={assetUrl(image)}
+                              alt={`Привидение ${index + 1}`}
+                              width={96}
+                              height={96}
+                              loading="lazy"
+                            />
                           </label>
                         ))}
                       </div>
@@ -484,17 +676,18 @@ export default function App() {
                     <option value="conflict">С нарушениями</option>
                   </select>
                 </div>
-                <div className="request-list">
+                <div className="request-list result-enter" key={JSON.stringify(assignments)}>
                   {visible.map((g) => {
                     const p = places.find((p) => p.id === assignments[g.id]),
                       bad = violations(g);
                     return (
                       <button
                         key={g.id}
+                        aria-pressed={selected === g.id}
                         className={`request request-${bad.length ? 'conflict' : p ? 'assigned' : 'unassigned'} ${selected === g.id ? 'selected' : ''}`}
                         onClick={() => select(g.id)}
                       >
-                        <img
+                        <ArtImage
                           className="avatar ghost-image"
                           src={portraitUrl(g)}
                           alt=""
@@ -504,6 +697,7 @@ export default function App() {
                         <span className="request-body">
                           <strong>
                             {g.name}
+                            {isUrgent(g, today) && <span className="urgent-badge">🔥 Срочно</span>}
                             {pinned.includes(g.id) && (
                               <span aria-label="Закреплено вручную"> 🔒</span>
                             )}
@@ -513,14 +707,20 @@ export default function App() {
                               'Без особых условий'}
                           </span>
                           <span className="request-meta">
-                            <span className={g.deadline < today ? 'red' : ''}>
+                            <span className={g.deadline < today && !g.settledAt ? 'red' : ''}>
                               До {dateLabel(g.deadline)}
                             </span>
                             <span>Тревожность {g.anxiety}/10</span>
                           </span>
                         </span>
                         <span className={`badge ${bad.length ? 'bad' : p ? 'good' : 'warning'}`}>
-                          {bad.length ? 'Конфликт' : p ? 'Назначено' : 'Без места'}
+                          {bad.length
+                            ? 'Конфликт'
+                            : g.settledAt
+                              ? 'Переселено'
+                              : p
+                                ? 'Назначено'
+                                : 'Без места'}
                         </span>
                       </button>
                     );
@@ -537,7 +737,19 @@ export default function App() {
                   )}
                 </div>
               </section>
-              <aside className="detail" aria-label="Карточка заявки">
+              <aside className="detail result-enter" aria-label="Карточка заявки">
+                <button
+                  className="secondary back-to-list"
+                  onClick={() => {
+                    if (mayLeave()) {
+                      setMobileDetail(false);
+                      setEditing(false);
+                      setDirty(false);
+                    }
+                  }}
+                >
+                  ← Все заявки
+                </button>
                 {ghost ? (
                   <>
                     <div className="detail-top">
@@ -546,7 +758,7 @@ export default function App() {
                         № {ghost.id.startsWith('g') ? ghost.id.slice(1).padStart(3, '0') : 'новое'}
                       </span>
                     </div>
-                    <img
+                    <ArtImage
                       className="detail-portrait"
                       src={portraitUrl(ghost)}
                       alt={`Портрет: ${ghost.name}`}
@@ -561,15 +773,20 @@ export default function App() {
                     >
                       {violations(ghost).length
                         ? 'Конфликт'
-                        : assignments[ghost.id]
-                          ? 'Назначено'
-                          : 'Без места'}
+                        : ghost.settledAt
+                          ? 'Переселено'
+                          : assignments[ghost.id]
+                            ? 'Назначено'
+                            : 'Без места'}
                     </span>
                     <div className="request-actions">
                       <button
                         className="secondary"
                         aria-expanded={editing}
+                        disabled={!!ghost.settledAt}
                         onClick={() => {
+                          if (editing && !mayLeave()) return;
+                          setDirty(false);
                           setEditing(!editing);
                           setDeleting(false);
                           setPending(null);
@@ -581,8 +798,12 @@ export default function App() {
                         className="text-button delete-action"
                         aria-expanded={deleting}
                         onClick={() => {
+                          if (!mayLeave()) return;
+                          setDirty(false);
                           setDeleting(!deleting);
+                          setUndo(structuredClone(currentSession));
                           setEditing(false);
+                          setDirty(false);
                           setPending(null);
                         }}
                       >
@@ -593,8 +814,15 @@ export default function App() {
                       <GhostForm
                         key={ghost.id}
                         ghost={ghost}
-                        onCancel={() => setEditing(false)}
+                        onDirty={() => setDirty(true)}
+                        onCancel={() => {
+                          setEditing(false);
+                          setDirty(false);
+                          detailHeading.current?.focus();
+                        }}
                         onSave={(updated) => {
+                          setUndo(structuredClone(currentSession));
+                          setDirty(false);
                           setGhosts((items) =>
                             items.map((item) => (item.id === updated.id ? updated : item)),
                           );
@@ -623,220 +851,244 @@ export default function App() {
                         </div>
                       </section>
                     )}
-                    <p className="muted">В поисках места, которое можно назвать своим.</p>
-                    <dl className="facts">
-                      <div>
-                        <dt>Тревожность</dt>
-                        <dd>{ghost.anxiety} из 10</dd>
-                      </div>
-                      <div>
-                        <dt>Любимая температура</dt>
-                        <dd>{ghost.temperature} °C</dd>
-                      </div>
-                      <div>
-                        <dt>Дедлайн</dt>
-                        <dd className={ghost.deadline < today ? 'red' : ''}>
-                          {dateLabel(ghost.deadline)}
-                          {ghost.deadline < today ? ' · просрочен' : ''}
-                        </dd>
-                      </div>
-                    </dl>
-                    <h3>Особые условия</h3>
-                    <div className="tags">
-                      {ghost.conditions.length ? (
-                        ghost.conditions.map((c) => <span key={c}>{conditionLabels[c]}</span>)
-                      ) : (
-                        <span>Нет</span>
-                      )}
-                    </div>
-                    <div className="decision">
-                      <p className="eyebrow">Текущее решение</p>
-                      {assignments[ghost.id] && (
-                        <div className="pin-control">
+                    {!editing && (
+                      <>
+                        <p className="muted">В поисках места, которое можно назвать своим.</p>
+                        {isUrgent(ghost, today) && (
+                          <p className="urgent-badge">🔥 Срочно: срок сегодня или завтра</p>
+                        )}
+                        {!ghost.settledAt && (
                           <button
-                            className={
-                              'pin-button ' + (pinned.includes(ghost.id) ? 'is-pinned' : '')
-                            }
-                            aria-pressed={pinned.includes(ghost.id)}
-                            onClick={() => {
-                              const locked = pinned.includes(ghost.id);
-                              setPinned((ids) =>
-                                locked ? ids.filter((id) => id !== ghost.id) : [...ids, ghost.id],
-                              );
-                              setMessage(
-                                locked
-                                  ? 'Закрепление снято. Следующий подбор может изменить этот адрес.'
-                                  : 'Назначение закреплено. Автоподбор сохранит этот адрес.',
-                              );
+                            className="secondary"
+                            disabled={addDays(ghost.deadline, 7) > '2100-12-31'}
+                            onClick={extendDeadline}
+                          >
+                            +7 дней к сроку
+                          </button>
+                        )}
+                        <dl className="facts">
+                          <div>
+                            <dt>Тревожность</dt>
+                            <dd>{ghost.anxiety} из 10</dd>
+                          </div>
+                          <div>
+                            <dt>Любимая температура</dt>
+                            <dd>{ghost.temperature} °C</dd>
+                          </div>
+                          <div>
+                            <dt>Дедлайн</dt>
+                            <dd className={ghost.deadline < today && !ghost.settledAt ? 'red' : ''}>
+                              {dateLabel(ghost.deadline)}
+                              {ghost.deadline < today && !ghost.settledAt ? ' · просрочен' : ''}
+                            </dd>
+                          </div>
+                        </dl>
+                        <h3>Особые условия</h3>
+                        <div className="tags">
+                          {ghost.conditions.length ? (
+                            ghost.conditions.map((c) => <span key={c}>{conditionLabels[c]}</span>)
+                          ) : (
+                            <span>Нет</span>
+                          )}
+                        </div>
+                        <div className="decision">
+                          <p className="eyebrow">Текущее решение</p>
+                          {ghost.settledAt ? (
+                            <div className="notice">
+                              <strong>Переезд завершён {dateLabel(ghost.settledAt)}</strong>
+                              <p>
+                                Дедлайн выполнен. Чтобы изменить заявку или адрес, верните её в
+                                план.
+                              </p>
+                              <button
+                                onClick={() => {
+                                  setUndo(structuredClone(currentSession));
+                                  setGhosts((items) =>
+                                    items.map((g) =>
+                                      g.id === ghost.id ? { ...g, settledAt: undefined } : g,
+                                    ),
+                                  );
+                                }}
+                              >
+                                Вернуть в план
+                              </button>
+                            </div>
+                          ) : (
+                            assignments[ghost.id] && (
+                              <button
+                                className="secondary"
+                                disabled={!!violations(ghost).length}
+                                onClick={settle}
+                              >
+                                Подтвердить переселение
+                              </button>
+                            )
+                          )}
+                          {assignments[ghost.id] && !ghost.settledAt && (
+                            <div className="pin-control">
+                              <button
+                                className={
+                                  'pin-button ' + (pinned.includes(ghost.id) ? 'is-pinned' : '')
+                                }
+                                aria-pressed={pinned.includes(ghost.id)}
+                                onClick={() => {
+                                  setUndo(structuredClone(currentSession));
+                                  const locked = pinned.includes(ghost.id);
+                                  setPinned((ids) =>
+                                    locked
+                                      ? ids.filter((id) => id !== ghost.id)
+                                      : [...ids, ghost.id],
+                                  );
+                                  setMessage(
+                                    locked
+                                      ? 'Закрепление снято. Следующий подбор может изменить этот адрес.'
+                                      : 'Назначение закреплено. Автоподбор сохранит этот адрес.',
+                                  );
+                                }}
+                              >
+                                {pinned.includes(ghost.id)
+                                  ? '🔒 Закреплено вручную'
+                                  : '🔓 Закрепить назначение'}
+                              </button>
+                              <small>
+                                {pinned.includes(ghost.id)
+                                  ? 'Автоподбор сохранит адрес. Нажмите, чтобы снять замочек.'
+                                  : 'Автоподбор может изменить адрес.'}
+                              </small>
+                            </div>
+                          )}
+                          <h3>
+                            {places.find((p) => p.id === assignments[ghost.id])?.name ??
+                              'Место пока не назначено'}
+                          </h3>
+                          {assignments[ghost.id] ? (
+                            <>
+                              <ComfortPanel
+                                ghost={ghost}
+                                place={places.find((p) => p.id === assignments[ghost.id])!}
+                                today={today}
+                              />
+                              {violations(ghost).length > 0 && (
+                                <ul className="red">
+                                  {violations(ghost).map((c) => (
+                                    <li key={c}>{c}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </>
+                          ) : (
+                            <p>
+                              {places.every(
+                                (p) => relocation.conflicts(ghost, p, assignments, today).length,
+                              )
+                                ? 'Подходящих свободных мест нет. Причины для каждого адреса — в списке ниже.'
+                                : 'Есть подходящие места. Запустите подбор или назначьте адрес вручную.'}
+                            </p>
+                          )}
+                          {(!assignments[ghost.id] ||
+                            places.every(
+                              (p) => relocation.conflicts(ghost, p, assignments, today).length > 0,
+                            )) && (
+                            <div className="ideal-action">
+                              <button
+                                className="primary ideal-button"
+                                onClick={() => createIdealPlace(ghost)}
+                              >
+                                🪄 Создать идеальное место для {ghost.name}
+                              </button>
+                              {ghost.deadline < today && !ghost.settledAt && (
+                                <p className="deadline-note">
+                                  Дедлайн просрочен. Новый адрес не изменит срок: продлите его в
+                                  заявке перед подбором.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <label className="manual-label">
+                          Изменить место вручную
+                          <select
+                            disabled={!!ghost.settledAt}
+                            value={target}
+                            onChange={(e) => {
+                              setTarget(e.target.value);
+                              setPending(null);
                             }}
                           >
-                            {pinned.includes(ghost.id)
-                              ? '🔒 Закреплено вручную'
-                              : '🔓 Закрепить назначение'}
-                          </button>
-                          <small>
-                            {pinned.includes(ghost.id)
-                              ? 'Автоподбор сохранит адрес. Нажмите, чтобы снять замочек.'
-                              : 'Автоподбор может изменить адрес.'}
-                          </small>
-                        </div>
-                      )}
-                      <h3>
-                        {places.find((p) => p.id === assignments[ghost.id])?.name ??
-                          'Место пока не назначено'}
-                      </h3>
-                      {assignments[ghost.id] ? (
-                        <>
-                          <ComfortPanel
-                            ghost={ghost}
-                            place={places.find((p) => p.id === assignments[ghost.id])!}
-                            today={today}
-                          />
-                          {violations(ghost).length > 0 && (
-                            <ul className="red">
-                              {violations(ghost).map((c) => (
+                            <option value="">Без назначения</option>
+                            {places.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} · {occupied(p.id)}/{p.capacity}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {target && target !== assignments[ghost.id] && (
+                          <div className="candidate">
+                            {(() => {
+                              const p = places.find((p) => p.id === target)!;
+                              const c = relocation.conflicts(ghost, p, assignments, today);
+                              return (
+                                <>
+                                  <ComfortPanel ghost={ghost} place={p} today={today} />
+                                  {c.length ? (
+                                    <ul className="red">
+                                      {c.map((s) => (
+                                        <li key={s}>{s}</li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="green">Можно назначить: условия соблюдены.</p>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
+                        <button
+                          className="secondary wide"
+                          onClick={choose}
+                          disabled={!!ghost.settledAt}
+                        >
+                          Применить выбор
+                        </button>
+                        {pending && (
+                          <div className="notice danger" role="alert">
+                            <strong>Назначение нарушает условия</strong>
+                            <ul>
+                              {pending.conflicts.map((c) => (
                                 <li key={c}>{c}</li>
                               ))}
                             </ul>
-                          )}
-                        </>
-                      ) : (
-                        <p>
-                          {places.every(
-                            (p) => relocation.conflicts(ghost, p, assignments, today).length,
-                          )
-                            ? 'Подходящих свободных мест нет. Причины для каждого адреса — в списке ниже.'
-                            : 'Есть подходящие места. Запустите подбор или назначьте адрес вручную.'}
-                        </p>
-                      )}
-                      {(!assignments[ghost.id] ||
-                        places.every(
-                          (p) => relocation.conflicts(ghost, p, assignments, today).length > 0,
-                        )) && (
-                        <div className="ideal-action">
-                          <button
-                            className="primary ideal-button"
-                            onClick={() => createIdealPlace(ghost)}
-                          >
-                            🪄 Создать идеальное место для {ghost.name}
-                          </button>
-                          {ghost.deadline < today && (
-                            <p className="deadline-note">
-                              Дедлайн просрочен. Новый адрес не изменит срок: продлите его в заявке
-                              перед подбором.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <label className="manual-label">
-                      Изменить место вручную
-                      <select
-                        value={target}
-                        onChange={(e) => {
-                          setTarget(e.target.value);
-                          setPending(null);
-                        }}
-                      >
-                        <option value="">Без назначения</option>
-                        {places.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} · {occupied(p.id)}/{p.capacity}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {target && target !== assignments[ghost.id] && (
-                      <div className="candidate">
-                        {(() => {
-                          const p = places.find((p) => p.id === target)!;
-                          const c = relocation.conflicts(ghost, p, assignments, today);
-                          return (
-                            <>
-                              <ComfortPanel ghost={ghost} place={p} today={today} />
-                              {c.length ? (
-                                <ul className="red">
-                                  {c.map((s) => (
-                                    <li key={s}>{s}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="green">Можно назначить: условия соблюдены.</p>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
-                    <button className="secondary wide" onClick={choose}>
-                      Применить выбор
-                    </button>
-                    {pending && (
-                      <div className="notice danger" role="alert">
-                        <strong>Назначение нарушает условия</strong>
-                        <ul>
-                          {pending.conflicts.map((c) => (
-                            <li key={c}>{c}</li>
-                          ))}
-                        </ul>
-                        <p>Оно будет отмечено как проблемное в отчёте.</p>
-                        <button
-                          className="danger-button"
-                          onClick={() => apply(pending.ghostId, pending.placeId)}
-                        >
-                          Всё равно назначить
-                        </button>
-                        <button className="text-button" onClick={() => setPending(null)}>
-                          Отмена
-                        </button>
-                      </div>
-                    )}
-                    <details className="reasons">
-                      <summary>Изменить дедлайн</summary>
-                      <form
-                        className="new-form"
-                        key={`${ghost.id}-${ghost.deadline}`}
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const deadline = String(new FormData(e.currentTarget).get('newDeadline'));
-                          setGhosts((gs) =>
-                            gs.map((g) => (g.id === ghost.id ? { ...g, deadline } : g)),
-                          );
-                          setPending(null);
-                          setMessage('Дедлайн обновлён. При необходимости повторите подбор.');
-                        }}
-                      >
-                        <label>
-                          Новый дедлайн
-                          <input
-                            type="date"
-                            name="newDeadline"
-                            defaultValue={ghost.deadline}
-                            min="2000-01-01"
-                            max="2100-12-31"
-                            required
-                          />
-                        </label>
-                        <button type="submit" className="secondary">
-                          Сохранить срок
-                        </button>
-                      </form>
-                    </details>
-                    <details className="reasons">
-                      <summary>Проверка всех адресов</summary>
-                      {places.map((p) => {
-                        const c = relocation.conflicts(ghost, p, assignments, today);
-                        return (
-                          <div key={p.id}>
-                            <strong>{p.name}</strong>
-                            <p>
-                              {c.join('; ') ||
-                                `Подходит · комфорт ${relocation.evaluate(ghost, p, today).score}/100`}
-                            </p>
+                            <p>Оно будет отмечено как проблемное в отчёте.</p>
+                            <button
+                              className="danger-button"
+                              onClick={() => apply(pending.ghostId, pending.placeId)}
+                            >
+                              Всё равно назначить
+                            </button>
+                            <button className="text-button" onClick={() => setPending(null)}>
+                              Отмена
+                            </button>
                           </div>
-                        );
-                      })}
-                    </details>
+                        )}
+                        <details className="reasons">
+                          <summary>Проверка всех адресов</summary>
+                          {places.map((p) => {
+                            const c = relocation.conflicts(ghost, p, assignments, today);
+                            return (
+                              <div key={p.id}>
+                                <strong>{p.name}</strong>
+                                <p>
+                                  {c.join('; ') ||
+                                    `Подходит · комфорт ${relocation.evaluate(ghost, p, today).score}/100`}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </details>
+                      </>
+                    )}
                   </>
                 ) : (
                   <div className="empty">
@@ -846,16 +1098,41 @@ export default function App() {
                 )}
               </aside>
             </div>
+            <section className="quick-start">
+              <strong>Три шага к новому дому</strong>
+              <p>
+                1. Подберите адреса. 2. Откройте заявки без места или с конфликтами. 3. Подтвердите
+                переселение, когда условия подходят. Ручной выбор сохраняется замочком.
+              </p>
+            </section>
+            {scenarioPending && (
+              <section className="notice danger" aria-label="Подтверждение демосценария">
+                <strong>Заменить {ghosts.length} заявок и назначения?</strong>
+                <p>
+                  Демосценарий заменит рабочий список и замочки. Места сохранятся. Последнее
+                  действие можно отменить.
+                </p>
+                <button
+                  className="danger-button"
+                  onClick={() => {
+                    if (mayLeave()) scenario(scenarioPending);
+                  }}
+                >
+                  Загрузить сценарий
+                </button>
+                <button onClick={() => setScenarioPending(null)}>Отмена</button>
+              </section>
+            )}
             <section className="scenario">
               <div>
                 <h3>Проверить крайние случаи</h3>
                 <p>Сценарий заменяет заявки и назначения. Добавленные места сохраняются.</p>
               </div>
               <div className="scenario-buttons">
-                <button onClick={() => scenario('demo')}>Исходные данные</button>
-                <button onClick={() => scenario('empty')}>Пустой список</button>
-                <button onClick={() => scenario('full')}>Переполнение</button>
-                <button onClick={() => scenario('conflict')}>Конфликт условий</button>
+                <button onClick={() => setScenarioPending('demo')}>Исходные данные</button>
+                <button onClick={() => setScenarioPending('empty')}>Пустой список</button>
+                <button onClick={() => setScenarioPending('full')}>Переполнение</button>
+                <button onClick={() => setScenarioPending('conflict')}>Конфликт условий</button>
               </div>
             </section>
           </>
@@ -868,6 +1145,8 @@ export default function App() {
                 className="primary"
                 onClick={() => {
                   if (!showPlaceForm) {
+                    setEditingPlace(null);
+                    setIdealFor(null);
                     setPlaceInitial(undefined);
                     setPlaceFormVersion((v) => v + 1);
                   }
@@ -881,9 +1160,20 @@ export default function App() {
               <PlaceForm
                 key={placeFormVersion}
                 initialData={placeInitial}
+                editing={!!editingPlace}
                 existingPlaces={places}
                 onCancel={() => setShowPlaceForm(false)}
                 onAdd={(p) => {
+                  if (editingPlace) {
+                    setUndo(structuredClone(currentSession));
+                    setPlaces((items) => items.map((item) => (item.id === p.id ? p : item)));
+                    setEditingPlace(null);
+                    setShowPlaceForm(false);
+                    setMessage(
+                      'Место обновлено. Совместимость жильцов пересчитана; проверьте конфликты.',
+                    );
+                    return;
+                  }
                   if (
                     !availableLocations(places).some(
                       (location) => location.image === placeImageKey(p),
@@ -896,6 +1186,7 @@ export default function App() {
                     setError('Можно добавить до 50 мест.');
                     return;
                   }
+                  setUndo(structuredClone(currentSession));
                   setPlaces((ps) => [...ps, p]);
                   setShowPlaceForm(false);
                   setMessage(
@@ -904,13 +1195,74 @@ export default function App() {
                 }}
               />
             )}
+            {idealFor &&
+              ghosts.some((g) => g.id === idealFor) &&
+              !showPlaceForm &&
+              places.some(
+                (p) =>
+                  !relocation.conflicts(
+                    ghosts.find((g) => g.id === idealFor)!,
+                    p,
+                    assignments,
+                    today,
+                  ).length,
+              ) && (
+                <div className="notice">
+                  <p>Адрес готов. Вернитесь к заявке, чтобы проверить и применить назначение.</p>
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      select(idealFor, true);
+                      setTab('Заявки');
+                      setIdealFor(null);
+                    }}
+                  >
+                    Вернуться к заявке
+                  </button>
+                </div>
+              )}
+            {deletingPlace && (
+              <section className="notice danger" aria-label="Подтверждение удаления места">
+                <strong>Удалить «{deletingPlace.name}»?</strong>
+                <p>
+                  Назначений будет снято: {occupied(deletingPlace.id)}. Жильцы вернутся в план без
+                  адреса и замочка. Иллюстрация снова станет доступна.
+                </p>
+                <button
+                  className="danger-button"
+                  onClick={() => {
+                    const ids = ghosts
+                      .filter((g) => assignments[g.id] === deletingPlace.id)
+                      .map((g) => g.id);
+                    setUndo(structuredClone(currentSession));
+                    setPlaces((items) => items.filter((p) => p.id !== deletingPlace.id));
+                    setGhosts((items) =>
+                      items.map((g) => (ids.includes(g.id) ? { ...g, settledAt: undefined } : g)),
+                    );
+                    setAssignments((items) =>
+                      Object.fromEntries(Object.entries(items).filter(([id]) => !ids.includes(id))),
+                    );
+                    setPinned((items) => items.filter((id) => !ids.includes(id)));
+                    if (selected && ids.includes(selected)) setTarget('');
+                    setDeletingPlace(null);
+                    setPending(null);
+                    setShowPlaceForm(false);
+                    setMessage('Место удалено. Назначения сняты; действие можно отменить.');
+                  }}
+                >
+                  Да, удалить место
+                </button>
+                <button onClick={() => setDeletingPlace(null)}>Отмена</button>
+              </section>
+            )}
             <div className="places-grid">
               {places.map((p) => (
                 <article className="place" key={p.id}>
                   <div className="place-art">
-                    <img
+                    <ArtImage
                       src={placeImageUrl(p)}
                       alt={p.name}
+                      sizes="(max-width: 700px) 90vw, 480px"
                       width="512"
                       height="512"
                       loading="lazy"
@@ -935,11 +1287,11 @@ export default function App() {
                                   className="resident"
                                   onClick={() => {
                                     focusRequest.current = true;
-                                    select(g.id);
+                                    select(g.id, true);
                                     setTab('Заявки');
                                   }}
                                 >
-                                  <img src={portraitUrl(g)} alt="" width="36" height="36" />
+                                  <ArtImage src={portraitUrl(g)} alt="" width="36" height="36" />
                                   <span>{g.name}</span>
                                   <span aria-hidden="true">↗</span>
                                 </button>
@@ -950,6 +1302,25 @@ export default function App() {
                         <p className="residents-empty">Пока никто не заселен</p>
                       )}
                     </section>
+                    <div className="form-actions place-actions">
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setEditingPlace(p);
+                          setPlaceInitial(p);
+                          setPlaceFormVersion((v) => v + 1);
+                          setShowPlaceForm(true);
+                        }}
+                      >
+                        Изменить место
+                      </button>
+                      <button
+                        className="text-button delete-action"
+                        onClick={() => setDeletingPlace(p)}
+                      >
+                        Удалить место
+                      </button>
+                    </div>
                     <p>{p.description}</p>
                     <dl className="facts">
                       <div>
@@ -957,18 +1328,34 @@ export default function App() {
                         <dd>{p.temperature} °C</dd>
                       </div>
                       <div>
-                        <dt>Свет / шум / влажность</dt>
+                        <dt>Освещение</dt>
                         <dd>
-                          {p.light} / {p.noise} / {p.humidity}
+                          {p.light}/100 · {p.light <= 30 ? 'темно' : 'светло'}
                         </dd>
                       </div>
                       <div>
-                        <dt>Люди / зеркала / чердак</dt>
+                        <dt>Шум</dt>
                         <dd>
-                          {[p.people, p.mirrors, p.attic]
-                            .map((v) => (v ? 'да' : 'нет'))
-                            .join(' / ')}
+                          {p.noise}/100 · {p.noise <= 30 ? 'тихо' : 'шумно'}
                         </dd>
+                      </div>
+                      <div>
+                        <dt>Влажность</dt>
+                        <dd>
+                          {p.humidity}/100 · {p.humidity >= 65 ? 'сыро' : 'сухо'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Люди</dt>
+                        <dd>{p.people ? 'Есть' : 'Нет'}</dd>
+                      </div>
+                      <div>
+                        <dt>Зеркала</dt>
+                        <dd>{p.mirrors ? 'Есть' : 'Нет'}</dd>
+                      </div>
+                      <div>
+                        <dt>Чердак</dt>
+                        <dd>{p.attic ? 'Есть' : 'Нет'}</dd>
                       </div>
                       <div>
                         <dt>Макс. тревожность</dt>
@@ -983,69 +1370,19 @@ export default function App() {
           </section>
         )}
         {tab === 'Отчёт' && (
-          <section className="document">
-            <div className="section-heading">
-              <h2>План переселения</h2>
-              <button className="secondary" onClick={download}>
-                Скачать JSON
-              </button>
-            </div>
-            <p>
-              Назначено без нарушений:{' '}
-              <strong>
-                {ghosts.filter((g) => assignments[g.id] && !violations(g).length).length}
-              </strong>
-              . С нарушениями: <strong>{ghosts.filter((g) => violations(g).length).length}</strong>.
-              Без места: <strong>{ghosts.length - assigned}</strong>.
-            </p>
-            <h3>Требуют внимания · {problemGhosts.length}</h3>
-            {!problemGhosts.length && (
-              <p>
-                {ghosts.length ? 'Все заявки назначены без нарушений.' : 'Заявок нет. Отчёт пуст.'}
-              </p>
-            )}
-            {[...problemGhosts]
-              .sort((a, b) => a.deadline.localeCompare(b.deadline) || b.anxiety - a.anxiety)
-              .map((g) => (
-                <div className="report-row" key={g.id}>
-                  <strong>
-                    {g.name}
-                    {pinned.includes(g.id) && <span aria-label="Закреплено вручную"> 🔒</span>}
-                  </strong>
-                  <p>
-                    {violations(g).join('; ') ||
-                      (places.every((p) => relocation.conflicts(g, p, assignments, today).length)
-                        ? 'Нет подходящего свободного места. Откройте заявку для разбора каждого адреса.'
-                        : 'Место ещё не назначено; запустите подбор.')}
-                  </p>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      select(g.id);
-                      setTab('Заявки');
-                    }}
-                  >
-                    Открыть заявку →
-                  </button>
-                </div>
-              ))}
-            <h3>Вместимость мест</h3>
-            {places.map((p) => (
-              <div className="capacity-row" key={p.id}>
-                <span>{p.name}</span>
-                <strong className={occupied(p.id) > p.capacity ? 'red' : ''}>
-                  {occupied(p.id)} из {p.capacity}
-                  {occupied(p.id) > p.capacity ? ' · переполнено' : ''}
-                </strong>
-              </div>
-            ))}
-            <p>
-              {overloaded.length
-                ? `Перегруженных мест: ${overloaded.length}. Снимите лишние назначения или их закрепления и повторите автоматический подбор.`
-                : 'Переполненных мест нет.'}
-            </p>
-          </section>
+          <ReportView
+            ghosts={ghosts}
+            places={places}
+            assignments={assignments}
+            pinned={pinned}
+            today={today}
+            onOpenRequest={(id) => {
+              select(id, true);
+              setTab('Заявки');
+            }}
+          />
         )}
+        {tab === 'Смена' && <ShiftGame />}
         {tab === 'AI Worklog' && <Worklog />}
         <details className="method">
           <summary>Как работает подбор</summary>

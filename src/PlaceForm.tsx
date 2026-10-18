@@ -1,18 +1,25 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Place } from './domain';
-import { assetUrl, availableLocations } from './assets';
+import ArtImage from './ArtImage';
+import { assetUrl, availableLocations, placeImageKey } from './assets';
 export default function PlaceForm({
   onAdd,
   onCancel,
   initialData,
   existingPlaces = [],
+  editing = false,
 }: {
   onAdd: (place: Place) => void;
   onCancel: () => void;
   initialData?: Partial<Place>;
   existingPlaces?: readonly Place[];
+  editing?: boolean;
 }) {
-  const options = availableLocations(existingPlaces);
+  const options =
+    editing && initialData?.id && initialData.name
+      ? [{ image: placeImageKey(initialData as Place), name: initialData.name }]
+      : availableLocations(existingPlaces);
+  const [error, setError] = useState('');
   const [selectedImage, setSelectedImage] = useState(
     () => options.find((o) => o.image === initialData?.image)?.image ?? options[0]?.image ?? '',
   );
@@ -26,11 +33,16 @@ export default function PlaceForm({
     const data = new FormData(event.currentTarget);
     if (!selectedLocation) return;
     const number = (key: string) => Number(data.get(key));
+    const description = String(data.get('description')).trim();
+    if (!description) {
+      setError('Добавьте описание: пробелы не считаются текстом.');
+      return;
+    }
     onAdd({
-      id: crypto.randomUUID(),
+      id: editing ? initialData!.id! : crypto.randomUUID(),
       name: selectedLocation.name,
-      description: String(data.get('description')).trim(),
-      image: selectedLocation.image,
+      description,
+      image: editing ? (initialData?.image ?? selectedLocation.image) : selectedLocation.image,
       capacity: number('capacity'),
       temperature: number('temperature'),
       light: number('light'),
@@ -45,8 +57,13 @@ export default function PlaceForm({
   return (
     <form className="new-form place-form" onSubmit={submit}>
       <h2 ref={heading} tabIndex={-1}>
-        Новое место обитания
+        {editing ? 'Изменить место обитания' : 'Новое место обитания'}
       </h2>
+      {error && (
+        <p role="alert" className="red">
+          {error}
+        </p>
+      )}
       {!options.length ? (
         <div className="notice" role="status">
           <strong>Все локации уже добавлены</strong>
@@ -73,7 +90,13 @@ export default function PlaceForm({
                     checked={selectedLocation?.image === location.image}
                     onChange={() => setSelectedImage(location.image)}
                   />
-                  <img src={assetUrl(location.image)} alt="" />
+                  <ArtImage
+                    src={assetUrl(location.image)}
+                    alt=""
+                    width={192}
+                    height={192}
+                    loading="lazy"
+                  />
                   <span>{location.name}</span>
                 </label>
               ))}
@@ -140,12 +163,13 @@ export default function PlaceForm({
             </label>
           </fieldset>
           <p className="muted">
-            Новое место сразу участвует в ручном выборе. Для автоматического распределения повторите
-            подбор. Данные сохраняются в этом браузере.
+            {editing
+              ? 'После сохранения совместимость всех жильцов будет проверена заново. Назначения сохраняются.'
+              : 'Новое место сразу участвует в ручном выборе. Для автоматического распределения повторите подбор. Данные сохраняются в этом браузере.'}
           </p>
           <div className="form-actions">
             <button className="primary" type="submit">
-              Добавить место
+              {editing ? 'Сохранить место' : 'Добавить место'}
             </button>
             <button type="button" onClick={onCancel}>
               Отмена
