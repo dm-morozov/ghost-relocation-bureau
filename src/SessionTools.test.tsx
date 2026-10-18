@@ -111,3 +111,49 @@ it('не разрешает замену при недоступном чтен�
   expect(onResume).not.toHaveBeenCalled();
   expect(screen.getByRole('alert').textContent).toContain('Замена отменена');
 });
+
+it('сообщает о повреждённом файле и не заменяет текущие данные', async () => {
+  const user = userEvent.setup();
+  const onRestore = vi.fn();
+  render(
+    <SessionTools
+      session={session}
+      blocked
+      original={original}
+      onResume={vi.fn()}
+      onRestore={onRestore}
+    />,
+  );
+  const file = new File(['bad json'], 'broken.json', { type: 'application/json' });
+  Object.defineProperty(file, 'text', { value: async () => 'bad json' });
+  await user.upload(screen.getByLabelText('Восстановить из файла'), file);
+  expect((await screen.findByRole('alert')).textContent).toContain('Текущие данные сохранены');
+  expect(screen.queryByRole('button', { name: 'Восстановить сессию' })).toBeNull();
+  expect(onRestore).not.toHaveBeenCalled();
+  expect(localStorage.getItem(storageKey)).toBe(original);
+});
+
+it('показывает проверенный файл, отменяет восстановление и позволяет выбрать тот же файл снова', async () => {
+  const user = userEvent.setup();
+  const onRestore = vi.fn();
+  render(
+    <SessionTools
+      session={session}
+      blocked
+      original={original}
+      onResume={vi.fn()}
+      onRestore={onRestore}
+    />,
+  );
+  const file = new File([makeBackup(session)], 'my-bureau.json', { type: 'application/json' });
+  Object.defineProperty(file, 'text', { value: async () => makeBackup(session) });
+  await user.upload(screen.getByLabelText('Восстановить из файла'), file);
+  expect((await screen.findByRole('status')).textContent).toContain('my-bureau.json');
+  await user.click(screen.getByRole('button', { name: 'Отмена' }));
+  expect(screen.queryByRole('button', { name: 'Восстановить сессию' })).toBeNull();
+  expect(screen.queryByText('Файл проверен: my-bureau.json')).toBeNull();
+  expect(onRestore).not.toHaveBeenCalled();
+  expect(localStorage.getItem(storageKey)).toBe(original);
+  await user.upload(screen.getByLabelText('Восстановить из файла'), file);
+  expect(await screen.findByRole('button', { name: 'Восстановить сессию' })).toBeTruthy();
+});

@@ -1,0 +1,212 @@
+.session-tools {
+  --session-surface: #fffef9;
+  --session-card: #f3f5ee;
+  --session-border: #c9d3c5;
+  --session-text: #263f37;
+  --session-muted: #56634f;
+  margin: 0 0 24px;
+  padding: 0;
+  border: 1px solid var(--session-border);
+  border-radius: 14px;
+  background: var(--session-surface);
+  color: var(--session-text);
+}
+.session-tools > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 650;
+  line-height: 1.5;
+  border-radius: 14px;
+}
+.session-tools > summary::-webkit-details-marker {
+  display: none;
+}
+.session-tools > summary::marker {
+  content: '';
+}
+.session-tools > summary:hover {
+  background: var(--session-card);
+}
+.session-summary-note {
+  margin-left: auto;
+  color: var(--session-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.session-disclosure {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  position: relative;
+  color: var(--session-muted);
+}
+.session-disclosure::before,
+.session-disclosure::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+  border-radius: 1px;
+}
+.session-disclosure::before {
+  width: 12px;
+  height: 2px;
+  top: 7px;
+  left: 2px;
+}
+.session-disclosure::after {
+  height: 12px;
+  width: 2px;
+  left: 7px;
+  top: 2px;
+}
+.session-tools[open] > summary .session-disclosure::after {
+  display: none;
+}
+.session-tools[open] > summary {
+  border-radius: 14px 14px 0 0;
+}
+.session-body {
+  padding: 0 22px 22px;
+}
+.session-intro {
+  margin: 0 0 20px;
+  color: var(--session-muted);
+  max-width: 76ch;
+}
+.session-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.session-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 20px;
+  min-width: 0;
+  border: 1px solid var(--session-border);
+  border-radius: 10px;
+  background: var(--session-card);
+}
+.session-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.session-card > p {
+  margin: 0 0 18px;
+  color: var(--session-muted);
+  font-size: 13px;
+}
+.session-tools .session-action,
+.session-file-choice {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 11px 16px;
+  border: 1px solid #7c9180;
+  border-radius: 7px;
+  background: var(--session-surface);
+  color: var(--session-text);
+  font:
+    600 13px/1.4 'Segoe UI',
+    Arial,
+    sans-serif;
+  text-align: center;
+  cursor: pointer;
+}
+.session-tools .session-action {
+  margin-top: auto;
+}
+.session-file-choice {
+  position: relative;
+  overflow: hidden;
+}
+.session-file-choice:hover,
+.session-tools .session-action:hover {
+  background: var(--session-card);
+  border-color: var(--session-text);
+}
+.session-file-choice:focus-within {
+  outline: 3px solid #c1822b;
+  outline-offset: 3px;
+}
+.session-file-choice input[type='file'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.session-file-hint {
+  display: block;
+  margin-top: 9px;
+  color: var(--session-muted);
+  font-size: 12px;
+}
+.session-card .session-file-name {
+  margin: 12px 0 0;
+  color: var(--session-text);
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.session-recovery {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--session-border);
+}
+.session-recovery p {
+  margin: 0 0 10px;
+  color: var(--session-muted);
+}
+.session-body > .notice {
+  margin-top: 18px;
+}
+:root[data-theme='dark'] .session-tools {
+  --session-surface: #142822;
+  --session-card: #1a332a;
+  --session-border: #496758;
+  --session-text: #e8eee1;
+  --session-muted: #bdcdbf;
+}
+:root[data-theme='dark'] .session-file-choice:focus-within {
+  outline-color: #f3cd80;
+}
+@media (max-width: 700px) {
+  .session-tools > summary {
+    padding: 16px;
+  }
+  .session-summary-note {
+    display: none;
+  }
+  .session-disclosure {
+    margin-left: auto;
+  }
+  .session-body {
+    padding: 0 16px 16px;
+  }
+  .session-actions {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .session-card {
+    padding: 16px;
+  }
+  .session-tools .session-action,
+  .session-file-choice {
+    width: 100%;
+  }
+}
+
+.session-file-choice {
+  margin-top: auto;
+}

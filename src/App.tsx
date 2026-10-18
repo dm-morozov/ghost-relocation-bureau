@@ -457,7 +457,7 @@ export default function App() {
             target="_blank"
             rel="noreferrer"
           >
-            Исходный код ↗
+            Исходный код
           </a>
         </div>
       </aside>
@@ -563,9 +563,7 @@ export default function App() {
                   Сверка условий и аур… <span className="allocation-spinner" aria-hidden="true" />
                 </>
               ) : (
-                <>
-                  Подобрать места <span aria-hidden="true">↗</span>
-                </>
+                <>Подобрать места</>
               )}
             </button>
           )}
@@ -1438,7 +1436,6 @@ export default function App() {
                                 >
                                   <ArtImage src={portraitUrl(g)} alt="" width="36" height="36" />
                                   <span>{g.name}</span>
-                                  <span aria-hidden="true">↗</span>
                                 </button>
                               </li>
                             ))}

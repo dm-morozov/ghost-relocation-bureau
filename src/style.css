@@ -1392,17 +1392,12 @@ legend {
   line-height: 1.5;
 }
 
-.session-tools,
 .quick-start {
   margin: 0 0 24px;
   padding: 16px;
   border: 1px solid #bdcbbf;
   border-radius: 10px;
   line-height: 1.6;
-}
-.session-tools summary {
-  cursor: pointer;
-  font-weight: 650;
 }
 .quick-start summary {
   cursor: pointer;
@@ -1413,18 +1408,6 @@ legend {
   gap: 10px;
   padding-left: 22px;
   margin-bottom: 0;
-}
-.session-tools .form-actions {
-  margin: 12px 0;
-}
-.backup-upload {
-  display: grid;
-  gap: 8px;
-  font-weight: 600;
-  max-width: 100%;
-}
-.backup-upload input {
-  max-width: 100%;
 }
 .undo-notice {
   gap: 12px;
@@ -1444,7 +1427,6 @@ legend {
   margin: 16px 0;
   flex-wrap: wrap;
 }
-:root[data-theme='dark'] .session-tools,
 :root[data-theme='dark'] .quick-start {
   border-color: #466859;
   color: #d9e9df;
